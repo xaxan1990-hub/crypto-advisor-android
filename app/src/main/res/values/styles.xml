@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Крипто-советник</string>
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#101815</item>
+        <item name="android:colorAccent">#B6F197</item>
+        <item name="android:statusBarColor">#101815</item>
+        <item name="android:navigationBarColor">#101815</item>
+    </style>
+</resources>

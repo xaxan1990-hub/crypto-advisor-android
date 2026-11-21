@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101815">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="stylesheet" href="/style.css">
+<title>Крипто-советник</title>
+</head>
+<body>
+<header><div class="mast"><span class="logo" aria-hidden="true">↗</span><strong>Крипто-советник</strong></div><button id="refresh" class="icon-btn" aria-label="Обновить данные" title="Обновить данные">↻</button></header>
+<main id="main"><p role="status">Загружаем модели…</p></main>
+<nav aria-label="Разделы">
+<button data-tab="market" aria-current="page"><svg viewBox="0 0 24 24"><path d="M3 19V5m0 14h18M6 15l5-6 4 3 6-8"/></svg>Рынок</button>
+<button data-tab="news"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM7 8h10M7 12h10M7 16h6"/></svg>Новости</button>
+<button data-tab="portfolio"><svg viewBox="0 0 24 24"><path d="M3 8h18v12H3zM8 8V5h8v3m-13 5h18"/></svg>Портфель</button>
+<button data-tab="research"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM7 15l3-3 3 2 4-6"/></svg>Проверка</button>
+</nav><div id="message" role="status" aria-live="polite"></div>
+<script type="module" src="/app.js"></script>
+</body></html>
