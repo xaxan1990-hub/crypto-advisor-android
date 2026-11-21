@@ -27,13 +27,14 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' | sort -V | tail -1)
           AVDMANAGER="$(dirname "$SDKMANAGER")/avdmanager"
           "$SDKMANAGER" 'platform-tools' 'emulator' 'system-images;android-35;google_apis;x86_64' >/dev/null
           sudo chmod a+rw /dev/kvm
           echo no | "$AVDMANAGER" create avd -n advisor -k 'system-images;android-35;google_apis;x86_64' --force
           "$ANDROID_HOME/emulator/emulator" -avd advisor -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RUNNER_TEMP/emulator.log" 2>&1 &
-          adb wait-for-device
+          timeout 180 adb wait-for-device
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -q 1; do sleep 3; done'
           adb shell input keyevent 82
           adb install "$RUNNER_TEMP"/apk/*.apk
@@ -43,4 +44,6 @@ jobs:
           node tools/smoke.mjs
       - name: Журнал устройства при ошибке
         if: failure()
-        run: adb logcat -d -t 220 | tail -160
+        run: |
+          tail -30 "$RUNNER_TEMP/emulator.log" || true
+          timeout 12 "$ANDROID_HOME/platform-tools/adb" logcat -d -t 250 | tail -180
