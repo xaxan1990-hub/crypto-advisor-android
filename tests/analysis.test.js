@@ -69,3 +69,24 @@ test('market exclusions, zero fear and daily average funding match source semant
   assert.equal(fearMap([{timestamp:'86400',value:'0'}]).get('1970-01-02'),0);
   assert.equal(fundingMap([{fundingTime:1000,fundingRate:'.002'},{fundingTime:2000,fundingRate:'.004'}]).get('1970-01-01'),.003);
 });
+
+test('mobile probabilities agree with the original LightGBM 4.6 C++ predictor',()=>{
+  // The reference implementation read the desktop .txt files at the source revision in config.json.
+  const inputs=[
+    Array(20).fill(0),
+    Array(20).fill(NaN),
+    [-.015,.12,-.09,.22,.37,.03,-.04,.13,.02,-.035,.09,64,.006,.002,.65,1.3,-.18,.09,-.13,.11]
+  ];
+  const reference={
+    short:[.60341381268717742,.47138482161881023,.45843990015032504],
+    medium:[.63665547672585121,.33501261284092149,.64957454369729772],
+    long:[.85787718022892256,.63049712009061332,.40315222322964223]
+  };
+  for(const [key,expected] of Object.entries(reference)){
+    const model=models[key];
+    inputs.forEach((values,i)=>{
+      const features=Object.fromEntries(model.features.map((name,j)=>[name,values[j]]));
+      assert.ok(Math.abs(predict(model,features)-expected[i])<1e-13,key+' fixture '+i);
+    });
+  }
+});
