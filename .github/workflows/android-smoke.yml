@@ -23,7 +23,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: gh release download "$TAG" --pattern '*.apk' --dir "$RUNNER_TEMP/apk"
-      - name: Запустить эмулятор
+      - name: Подготовить виртуальное устройство Android 15
         shell: bash
         run: |
           set -eo pipefail
@@ -32,12 +32,37 @@ jobs:
           AVDMANAGER="$(dirname "$SDKMANAGER")/avdmanager"
           "$SDKMANAGER" 'platform-tools' 'emulator' 'system-images;android-35;google_apis;x86_64' >/dev/null
           sudo chmod a+rw /dev/kvm
-          echo no | "$AVDMANAGER" create avd -n advisor -k 'system-images;android-35;google_apis;x86_64' --force
+          export ANDROID_USER_HOME="$RUNNER_TEMP/advisor-user"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf '%s\n' "ANDROID_USER_HOME=$ANDROID_USER_HOME" "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo no | "$AVDMANAGER" create avd --name advisor --package 'system-images;android-35;google_apis;x86_64' --device pixel_5 --path "$ANDROID_AVD_HOME/advisor.avd" --force
+          test -s "$ANDROID_AVD_HOME/advisor.avd/config.ini"
+          if [[ ! -s "$ANDROID_AVD_HOME/advisor.ini" ]]; then
+            printf '%s\n' 'avd.ini.encoding=UTF-8' "path=$ANDROID_AVD_HOME/advisor.avd" 'target=android-35' > "$ANDROID_AVD_HOME/advisor.ini"
+          fi
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fx advisor
+      - name: Загрузить Android и установить APK
+        shell: bash
+        run: |
+          set -eo pipefail
+          adb start-server
           "$ANDROID_HOME/emulator/emulator" -avd advisor -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RUNNER_TEMP/emulator.log" 2>&1 &
-          timeout 180 adb wait-for-device
+          emulator_pid=$!
+          for i in {1..90}; do
+            kill -0 "$emulator_pid" || { cat "$RUNNER_TEMP/emulator.log"; exit 1; }
+            if adb devices | grep -Eq '^emulator-[0-9]+[[:space:]]+device$'; then break; fi
+            sleep 2
+          done
+          timeout 10 adb wait-for-device
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -q 1; do sleep 3; done'
           adb shell input keyevent 82
           adb install "$RUNNER_TEMP"/apk/*.apk
+      - name: Проверить экраны советника
+        shell: bash
+        run: |
+          set -eo pipefail
           adb shell am start -W -n io.github.xaxan1990hub.cryptoadvisor/.MainActivity
           pid=$(adb shell pidof io.github.xaxan1990hub.cryptoadvisor | tr -d '\r')
           adb forward tcp:9222 localabstract:webview_devtools_remote_$pid
