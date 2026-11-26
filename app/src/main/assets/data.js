@@ -38,7 +38,13 @@ export function fundingMap(data){
 }
 function cleanCandles(candles,today){
   const byDay=new Map();
-  for(const r of candles)if(r.day<today&&r.close>0&&finite(r.close))byDay.set(r.day,r);
+  for(const r of candles){
+    if(!(r.day<today)||!finite(r.close)||r.close<=0)continue;
+    const open=finite(r.open)&&r.open>0?r.open:r.close;
+    const high=finite(r.high)&&r.high>0?Math.max(r.high,open,r.close):Math.max(open,r.close);
+    const low=finite(r.low)&&r.low>0?Math.min(r.low,open,r.close):Math.min(open,r.close);
+    byDay.set(r.day,{...r,open,high,low,close:r.close});
+  }
   return [...byDay.values()].sort((a,b)=>a.day.localeCompare(b.day));
 }
 export async function history(coin,refresh){
@@ -47,13 +53,21 @@ export async function history(coin,refresh){
     const pack=await request('candles',coin.symbol,refresh);
     const raw=pack.data, last=raw[raw.length-1];
     if(!last || Math.abs(Number(last[4])/coin.price-1)>=.08 || Math.abs(Number(last[0])-coin.at)>2*dayMs)throw Error('Пара не совпадает');
-    const candles=cleanCandles(raw.map(k=>({day:utcDay(+k[0]),close:+k[4],volume:+k[7]})),today);
+    const candles=cleanCandles(raw.map(k=>({
+      day:utcDay(+k[0]),open:+k[1],high:+k[2],low:+k[3],close:+k[4],volume:+k[7],
+    })),today);
     if(candles.length<15)throw Error('Мало свечей');
     return {rows:indicators(candles),source:'Binance',stale:!!pack.stale};
   }catch{
     const pack=await request('chart',coin.id,refresh),raw=pack.data;
     const volume=new Map(raw.total_volumes.map(([t,v])=>[utcDay(t),v]));
-    const candles=cleanCandles(raw.prices.map(([t,p])=>({day:utcDay(t),close:p,volume:volume.get(utcDay(t))??0})),today);
+    let previous=null;
+    const candles=cleanCandles(raw.prices.map(([t,p])=>{
+      const close=Number(p),open=previous??close;
+      previous=close;
+      return {day:utcDay(t),open,high:Math.max(open,close),low:Math.min(open,close),close,
+        volume:volume.get(utcDay(t))??0};
+    }),today);
     if(candles.length<15)throw Error('Для оценки нужно 15 дневных цен.');
     return {rows:indicators(candles),source:'CoinGecko',stale:!!pack.stale};
   }
@@ -116,20 +130,80 @@ export async function recordJournal(coin,cards,rows,canRecord){
     tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
   });
 }
+function cbrRate(data){
+  const usd=data?.Valute?.USD;
+  const nominal=Number(usd?.Nominal||1);
+  const rate=Number(usd?.Value)/nominal;
+  if(!finite(rate)||rate<=0)throw Error('Некорректный курс ЦБ');
+  return rate;
+}
+
 export async function fxRate(refresh=false){
   try{
     const pack=await request('fx','',refresh);
-    const usd=pack.data?.Valute?.USD;
-    const nominal=Number(usd?.Nominal||1);
-    const rate=Number(usd?.Value)/nominal;
-    if(!finite(rate)||rate<=0)throw Error('Некорректный курс ЦБ');
-    return {rate,date:String(pack.data?.Date||'').slice(0,10),source:'ЦБ РФ',stale:!!pack.stale};
+    return {rate:cbrRate(pack.data),date:String(pack.data?.Date||'').slice(0,10),source:'ЦБ РФ',stale:!!pack.stale};
   }catch(e){
     const pack=await request('fx_usdt','',refresh);
     const rate=Number(pack.data?.tether?.rub);
     if(!finite(rate)||rate<=0)throw e;
     return {rate,date:'',source:'USDT/RUB',stale:!!pack.stale};
   }
+}
+
+const FX_HISTORY='fx-history-v1';
+function readFxHistory(){
+  try{
+    const value=JSON.parse(localStorage.getItem(FX_HISTORY)||'{}');
+    return value&&typeof value==='object'?value:{};
+  }catch{return {};}
+}
+function writeFxHistory(cache){
+  try{
+    const keys=Object.keys(cache).sort();
+    for(const key of keys.slice(0,Math.max(0,keys.length-800)))delete cache[key];
+    localStorage.setItem(FX_HISTORY,JSON.stringify(cache));
+  }catch{}
+}
+
+export async function fxRateForDay(day){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))throw Error('Некорректная дата');
+  const cache=readFxHistory();
+  const saved=cache[day];
+  if(saved&&finite(Number(saved.rate))&&Number(saved.rate)>0)return {rate:Number(saved.rate),date:String(saved.date||day)};
+  let cursor=day;
+  for(let i=0;i<8;i++){
+    try{
+      const pack=await request('fxh',cursor);
+      const entry={rate:cbrRate(pack.data),date:String(pack.data?.Date||cursor).slice(0,10)};
+      cache[day]=entry;cache[cursor]=entry;writeFxHistory(cache);
+      return entry;
+    }catch(error){
+      if(i===7)throw error;
+      cursor=utcDay(Date.parse(cursor)-dayMs);
+    }
+  }
+}
+
+export async function searchCoins(query){
+  const pack=await request('search',query);
+  const list=Array.isArray(pack.data?.coins)?pack.data.coins:[];
+  return list.filter(c=>c?.id&&c?.symbol&&c?.name).slice(0,12).map((c,i)=>({
+    id:String(c.id),
+    name:String(c.name),
+    symbol:String(c.symbol).toUpperCase(),
+    rank:Number(c.market_cap_rank)||9999+i,
+  }));
+}
+
+export async function extraPrices(ids){
+  if(!ids.length)return new Map();
+  const pack=await request('price',ids.join(','));
+  const out=new Map();
+  for(const [id,value] of Object.entries(pack.data||{})){
+    const price=Number(value?.usd),at=Number(value?.last_updated_at)*1000;
+    if(finite(price)&&price>0)out.set(id,{price,at:finite(at)?at:Date.now()});
+  }
+  return out;
 }
 
 export async function latestRelease(refresh=false){

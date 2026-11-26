@@ -9,6 +9,8 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.time.LocalDate
 
 /** Only these read-only public feeds are reachable from the packaged interface. */
 internal class MarketGateway(context: Context) {
@@ -21,7 +23,9 @@ internal class MarketGateway(context: Context) {
 
     private fun feed(kind: String, id: String): Feed {
         val gecko = "https://api.coingecko.com/api/v3"
-        require(id.matches(Regex("[A-Za-z0-9._-]{0,128}")))
+        if (kind !in setOf("search", "price", "fxh")) {
+            require(id.matches(Regex("[A-Za-z0-9._-]{0,128}")))
+        }
         return when (kind) {
             "market" -> Feed("$gecko/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=160&page=1&sparkline=false&price_change_percentage=24h,7d,30d", 10)
             "fear" -> Feed("https://api.alternative.me/fng/?limit=1000&format=json", 360, "object")
@@ -32,6 +36,24 @@ internal class MarketGateway(context: Context) {
             "fx_usdt" -> Feed("$gecko/simple/price?ids=tether&vs_currencies=rub", 10, "object")
             "release" -> Feed("https://api.github.com/repos/xaxan1990-hub/crypto-advisor-android/releases?per_page=1", 60, "array")
             "news" -> Feed(feeds.getString(id), 30, "xml")
+            "search" -> {
+                require(id.length in 1..64 && id.matches(Regex("[\\p{L}\\p{N} ._'&-]+")))
+                Feed("$gecko/search?query=" + URLEncoder.encode(id, "UTF-8"), 1440, "object")
+            }
+            "price" -> {
+                require(id.matches(Regex("[A-Za-z0-9._,-]{0,512}")))
+                Feed("$gecko/simple/price?ids=$id&vs_currencies=usd&include_last_updated_at=true", 10, "object")
+            }
+            "fxh" -> {
+                val date = LocalDate.parse(id)
+                require(date.year in 2000..2100)
+                Feed(
+                    "https://www.cbr-xml-daily.ru/archive/${date.year}/%02d/%02d/daily_json.js"
+                        .format(date.monthValue, date.dayOfMonth),
+                    10080,
+                    "object",
+                )
+            }
             else -> throw IllegalArgumentException("Неизвестный источник")
         }
     }
@@ -40,7 +62,7 @@ internal class MarketGateway(context: Context) {
         val kind = uri.lastPathSegment.orEmpty()
         val id = uri.getQueryParameter("id").orEmpty()
         val source = feed(kind, id)
-        val key = "$kind-$id"
+        val key = "$kind-${Integer.toHexString(id.hashCode())}"
         synchronized(locks[(key.hashCode() and Int.MAX_VALUE) % locks.size]) {
             val file = AtomicFile(File(cache, "$key.json"))
             val now = System.currentTimeMillis()

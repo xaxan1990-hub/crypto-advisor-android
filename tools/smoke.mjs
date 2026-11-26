@@ -47,7 +47,9 @@ function marketFixture(){
     const payload={market,candles,funding:[],fear:{data:[0,1,2].map(i=>({timestamp:(last/dayMs-i)*86400,value:'24'}))},
       fx:{Date:'2026-11-27T11:30:00+03:00',Valute:{USD:{Nominal:1,Value:80}}},
       fx_usdt:{tether:{rub:80}},
-      release:{tag_name:'v0.2.0',html_url:'https://github.com/xaxan1990-hub/crypto-advisor-android/releases/tag/v0.2.0'},
+      release:{tag_name:'v0.4.0',html_url:'https://github.com/xaxan1990-hub/crypto-advisor-android/releases/tag/v0.4.0'},
+      search:{coins:[{id:'pepe',symbol:'pepe',name:'Pepe',market_cap_rank:52}]},
+      price:{pepe:{usd:0.00001,last_updated_at:Math.floor(now/1000)}},
       news:'<rss><channel><item><title>Bitcoin ETF approval</title><link>https://example.org/test</link></item></channel></rss>'};
     return new Response(JSON.stringify({at:now,data:payload[kind]}),{headers:{'Content-Type':'application/json'}});
   };
@@ -61,6 +63,7 @@ try{
   await until("document.querySelectorAll('.coin').length===2");
   await click('[data-act="coin"][data-id="bitcoin"]');
   await until("document.body.innerText.includes('Факторы и модель') && document.querySelectorAll('details').length===3");
+  assert.ok(await exec("document.querySelectorAll('.chart rect').length")>60,'candlestick chart');
   await click('[data-act="sim"]');await click('#sim-form button');
   await until("document.querySelector('#simulation')?.innerText.includes('Всё в начале')");
   await exec('window.advisorBack()');
@@ -81,10 +84,19 @@ try{
   await click('[data-tab="portfolio"]');await until("!!document.querySelector('[data-act=askdelete]')");
   await click('[data-tab="research"]');await until("document.body.innerText.includes('BTC · 7 дн.')");
   await click('[data-tab="news"]');await until("document.body.innerText.includes('Bitcoin ETF approval')");
+  await click('[data-tab="portfolio"]');
+  await click('[data-act="add"]');
+  await until("!!document.querySelector('#coin-search')");
+  await exec("const q=document.querySelector('#coin-search');q.value='pepe';q.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('[data-act=coinsearch]').click()");
+  await until("!!document.querySelector('[data-act=pickcoin]')");
+  await click('[data-act="pickcoin"]');
+  await until("document.querySelector('#tx-coin').value==='pepe'");
+  await exec("document.querySelector('[name=qty]').value='1000000';document.querySelector('[name=rub]').value='800';document.querySelector('#tx-form').requestSubmit()");
+  await until("document.body.innerText.includes('PEPE') && document.body.innerText.includes('Операции')");
   await click('[data-tab="market"]');
   await exec("const input=document.querySelector('#search');input.value='eth';input.dispatchEvent(new Event('input',{bubbles:true}))");
   assert.equal(await exec("document.querySelectorAll('.coin').length"),1);
   assert.equal(await exec("document.querySelector('.coin').dataset.id"),'ethereum');
   assert.deepEqual(exceptions,[]);
-  console.log('Android WebView passed: market, coin, charts, models, simulator, purchase, restart, journal, RSS and search.');
+  console.log('Android WebView passed: market, candles, models, simulator, purchase, edit, fees, restart, custom coin, journal, RSS and search.');
 }finally{ws.close();}

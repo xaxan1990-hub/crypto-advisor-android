@@ -216,6 +216,8 @@ function parseTx(raw, fallbackSeq) {
         note: typeof raw.note === 'string' ? raw.note.slice(0, 160) : '',
         seq,
         ...(raw.legacy ? {legacy: true} : {}),
+        ...(raw.rateDate ? {rateDate: String(raw.rateDate).slice(0, 10)} : {}),
+        ...(raw.fxApprox ? {fxApprox: true} : {}),
     };
 }
 

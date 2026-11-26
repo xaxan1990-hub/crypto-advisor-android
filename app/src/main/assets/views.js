@@ -16,19 +16,41 @@ const opts=(list,current)=>list.map(([id,label])=>`<option value="${esc(id)}" ${
 const note=s=>`<p class="sub">${esc(s)}</p>`;
 export function chart(rows){
   if(rows.length<2)return note('Недостаточно точек для графика.');
-  const vals=rows.flatMap(r=>[r.close,r.ma50,r.ma200]).filter(finite);
-  const min=Math.min(...vals), max=Math.max(...vals), span=max-min||1;
-  const x=i=>4+312*i/(rows.length-1), y=v=>100-95*(v-min)/span;
+  let data=rows;
+  if(rows.length>110){
+    const size=Math.ceil(rows.length/110),grouped=[];
+    for(let i=0;i<rows.length;i+=size){
+      const group=rows.slice(i,i+size),first=group[0],last=group.at(-1);
+      const high=Math.max(...group.map(r=>finite(r.high)&&r.high>0?r.high:r.close));
+      const low=Math.min(...group.map(r=>finite(r.low)&&r.low>0?r.low:r.close));
+      grouped.push({day:last.day,open:first.open??first.close,high,low,close:last.close,ma50:last.ma50,ma200:last.ma200});
+    }
+    data=grouped;
+  }
+  const vals=data.flatMap(r=>[r.high,r.low,r.ma50,r.ma200]).filter(finite);
+  const min=Math.min(...vals),max=Math.max(...vals),span=max-min||1;
+  const x=i=>4+312*(i+.5)/data.length;
+  const y=v=>112-100*(v-min)/span;
+  const bodyWidth=Math.max(.7,Math.min(6,312/data.length*.65));
+  const num=v=>finite(v)?v.toLocaleString('ru-RU',{maximumFractionDigits:v>=1?2:v>=.001?5:9}):'—';
   const line=(key,color,width)=>{
     let path='',started=false;
-    rows.forEach((r,i)=>{if(!finite(r[key])){started=false;return;}
+    data.forEach((r,i)=>{if(!finite(r[key])){started=false;return;}
       path+=(started?'L':'M')+x(i).toFixed(2)+' '+y(r[key]).toFixed(2);started=true;});
     return `<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" vector-effect="non-scaling-stroke"/>`;
   };
-  return `<svg class="chart" role="img" aria-label="Цена и скользящие средние с ${rows[0].day} по ${rows[rows.length-1].day}" viewBox="0 0 320 108" preserveAspectRatio="none"><path d="M0 20H320M0 55H320M0 95H320" stroke="#324238" fill="none"/>${line('ma200','#da9a70',1.4)}${line('ma50','#7db1cf',1.4)}${line('close','#baf295',2)}</svg>
-    <div class="between sub"><span>${rows[0].day}</span><span>${rows[rows.length-1].day}</span></div>
-    <div class="legend"><span>Цена · зелёная</span><span>MA50 · синяя</span><span>MA200 · медная</span></div>`;
+  const candles=data.map((r,i)=>{
+    const up=r.close>=r.open,color=up?'#baf295':'#e08a7a';
+    const top=y(Math.max(r.open,r.close)),bottom=y(Math.min(r.open,r.close));
+    const body=Math.max(1,bottom-top);
+    return `<g><title>${esc(r.day)} · O ${num(r.open)} · H ${num(r.high)} · L ${num(r.low)} · C ${num(r.close)}</title><line x1="${x(i).toFixed(2)}" x2="${x(i).toFixed(2)}" y1="${y(r.high).toFixed(2)}" y2="${y(r.low).toFixed(2)}" stroke="${color}" stroke-width="1"/><rect x="${(x(i)-bodyWidth/2).toFixed(2)}" y="${top.toFixed(2)}" width="${bodyWidth.toFixed(2)}" height="${body.toFixed(2)}" fill="${color}"/></g>`;
+  }).join('');
+  const first=data[0].day,last=data[data.length-1].day;
+  return `<svg class="chart" role="img" aria-label="Японские свечи с ${first} по ${last}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="#324238" fill="none"/>${line('ma200','#da9a70',1.4)}${line('ma50','#7db1cf',1.4)}${candles}</svg>
+    <div class="between sub"><span>${first}</span><span>${last}</span></div>
+    <div class="legend"><span>Свечи · зелёные — рост, красные — падение</span><span>MA50 · синяя</span><span>MA200 · медная</span></div>`;
 }
+
 export function coinRows(s){
   const q=s.query.trim().toLowerCase(),list=s.coins.filter(c=>(c.name+' '+c.symbol).toLowerCase().includes(q));
   const order=s.sort;
@@ -75,7 +97,7 @@ export function detail(s){
   const cards=d.cards.map((card,i)=>panel(`<div class="between"><h2>${horizons[i].title}</h2><strong class="mono ${color(card.total)}">${sign(card.total,0)} / 100</strong></div><small>${horizons[i].span}</small><p>${esc(card.verdict)}</p><small>Надёжность · ${esc(card.reliability)}</small>
   <details><summary>Факторы и модель</summary>${card.reasons.map(reason=>`<div class="row"><div class="between"><b>${esc(reason.title)}</b><span class="mono ${color(reason.points)}">${sign(reason.points)}</span></div><small>${esc(reason.note)}</small></div>`).join('')||note('Активных факторов с измеренным вкладом нет.')}
   ${note(card.prob===null?'Для модели мало истории.':'Вероятность роста по LightGBM '+fmt(card.prob*100,1)+'% · вес модели '+fmt(card.weight*100,1)+'%.')}</details>`)).join('');
-  return title+`<section class="panel"><div class="between"><h2>Цена</h2><small>${esc(d.source)} · USD</small></div><div class="chips">${[90,365,1000].map(n=>act('range',n===90?'3 месяца':n===365?'Год':'Всё',n,s.range===n?'active':'')).join('')}</div>
+  return title+`<section class="panel"><div class="between"><h2>Цена · японские свечи</h2><small>${esc(d.source)} · USD</small></div><div class="chips">${[90,365,1000].map(n=>act('range',n===90?'3 месяца':n===365?'Год':'Всё',n,s.range===n?'active':'')).join('')}</div>
   ${chart(d.series.slice(-s.range).map(x=>x.r))}<div class="metrics">${metric('RSI 14',fmt(r.rsi,1))}${metric('Волатильность / год',finite(r.vol30)?fmt(r.vol30*100)+'%':'—')}</div></section>
   <h2>Оценка по трём срокам</h2>${note('Закрытие '+r.day+' UTC · '+d.series.length+' дневных свечей'+(d.stale?' · сохранённая история':'')+(d.missing.length?' · недоступно: '+d.missing.join(', '):''))}
   ${cards}<div class="toolrow">${act('add','Записать покупку',c.id,'cta')}${act('sim','Симулятор',c.id)}</div>`;
@@ -91,10 +113,11 @@ export function news(s){
 }
 export function portfolio(s){
   const rate=s.fx?.rate,currency=s.currency==='usd'?'usd':'rub';
-  const sum=summarize(s.txs,s.coins,rate);
+  const coins=s.coinUniverse||s.coins;
+  const sum=summarize(s.txs,coins,rate);
   const conv=rub=>currency==='usd'?(finite(rate)&&rate>0?rub/rate:null):rub;
   const show=rub=>{const v=conv(rub);return finite(v)?(currency==='usd'?money(v):fmt(v,2)+' ₽'):'—';};
-  const coinById=new Map(s.coins.map(c=>[c.id,c]));
+  const coinById=new Map(coins.map(c=>[c.id,c]));
   const rateNote=s.fx?`Курс: 1 $ = ${fmt(s.fx.rate,2)} ₽ · ${esc(s.fx.source)}${s.fx.date?' · '+esc(s.fx.date):''}${s.fx.stale?' · кэш':''}`:(s.fxError||'Курс USD/RUB недоступен — стоимость в рублях неполная.');
   const advice=b=>{
     const cards=s.results.get(b.coin)?.cards;
@@ -112,7 +135,7 @@ export function portfolio(s){
     return panel(`<div class="between"><strong>${esc(p.symbol)}</strong><strong class="mono">${show(p.value)}</strong></div>
       <small>${fmt(p.qty,10)} · средняя ${show(p.avg)} · сейчас ${priceText}</small>
       <div class="between"><span>П/У: <b class="${p.pl>0?'up':p.pl<0?'down':''}">${show(p.pl)}${finite(p.plPct)?' ('+sign(p.plPct,1)+'%)':''}</b></span></div>
-      ${advice(p)}${c?act('coin','Анализ монеты',p.coin):''}`);
+      ${advice(p)}${s.coins.some(x=>x.id===p.coin)?act('coin','Анализ монеты',p.coin):''}`);
   }).join('');
   const importPanel=Array.isArray(s.importTxs)?`<section><h2>Импорт портфеля</h2><div class="panel">
     <div class="between"><b>Найдено операций: ${s.importTxs.length}</b>${s.importSkipped?`<small>пропущено ${s.importSkipped}</small>`:''}</div>
@@ -125,7 +148,7 @@ export function portfolio(s){
     const rub=txRub(tx,rate),fee=txFee(tx),qty=Number(tx.qty),price=finite(rub)&&finite(qty)&&qty>0?rub/qty:null;
     const sell=tx.type==='sell';
     return `<div class="row"><div class="between"><b class="${sell?'down':'up'}">${sell?'Продажа':'Покупка'} ${esc(tx.symbol)}</b><strong class="mono">${show(rub)}</strong></div>
-      <small>${esc(tx.day)} · ${fmt(tx.qty,10)} × ${show(price)}${fee?` · комиссия ${show(fee)}`:''}${tx.legacy?' · старый USD':''}</small>
+      <small>${esc(tx.day)} · ${fmt(tx.qty,10)} × ${show(price)}${fee?` · комиссия ${show(fee)}`:''}${tx.legacy?' · старый USD'+(tx.rateDate?' · курс '+esc(tx.rateDate):tx.fxApprox?' · текущий курс':''):''}</small>
       ${tx.note?`<p>${esc(tx.note)}</p>`:''}
       <div class="toolrow">${act('askedit','Изменить',tx.key)}${s.remove===tx.key?act('delete','Подтвердить удаление',tx.key)+act('canceldelete','Отмена'):act('askdelete','Удалить',tx.key)}</div></div>`;
   }).join('');
@@ -142,17 +165,31 @@ export function portfolio(s){
     <section><h2>Операции</h2>${txRows||note('Пока нет операций.')}</section>`;
 }
 
+export function coinSearchResults(s){
+  if(s.searchBusy)return note('Ищем монеты в CoinGecko…');
+  if(s.searchError)return note(s.searchError);
+  if(!s.searchResults)return note('Введите название или тикер и нажмите «Найти».');
+  if(!s.searchResults.length)return note('Ничего не найдено. Проверьте название или тикер.');
+  return s.searchResults.map(c=>`<button type="button" class="coin" data-act="pickcoin" data-id="${esc(c.id)}"><span class="rank">${c.rank<9999?c.rank:'•'}</span><span class="name"><strong>${esc(c.symbol)}</strong><small>${esc(c.name)}</small></span></button>`).join('');
+}
+
 export function buyForm(s){
   const edit=s.editTx?s.txs.find(t=>t.key===s.editTx):null;
-  if(!s.coins.length&&!edit)return header('Новая операция')+panel(note('Сначала загрузите котировки на вкладке «Рынок».')+act('market','Открыть рынок'));
+  const coins=s.coinUniverse||s.coins;
+  if(!coins.length&&!edit)return header('Новая операция')+panel(note('Сначала загрузите котировки на вкладке «Рынок».')+act('market','Открыть рынок'));
   const type=s.txType==='sell'?'sell':'buy';
-  let c=s.coins.find(x=>x.id===(edit?.coin??s.buyCoin));
+  let c=coins.find(x=>x.id===(edit?.coin??s.buyCoin));
   if(!c&&edit)c={id:edit.coin,symbol:edit.symbol,name:edit.symbol};
-  if(!c)c=s.coins[0];
-  const options=s.coins.map(x=>[x.id,x.symbol+' · '+x.name]);
+  if(!c)c=coins[0];
+  const options=coins.map(x=>[x.id,x.symbol+' · '+x.name]);
   if(!options.some(([id])=>id===c.id))options.unshift([c.id,c.symbol+' · '+c.name]);
   const held=availableAt(s.txs.filter(t=>t.key!==edit?.key),c.id,s.today);
   const title=edit?'Редактировать операцию':'Новая операция';
+  const searchBlock=edit?'':`<details class="panel"><summary>Нет монеты в списке? Найти в CoinGecko</summary>
+    <div class="toolrow"><label class="grow">Название или тикер<input type="search" id="coin-search" value="${esc(s.coinSearch||'')}" placeholder="например, pepe"></label>${act('coinsearch','Найти')}</div>
+    <div id="coin-search-results" class="list">${coinSearchResults(s)}</div>
+    <small>Можно добавить любую монету из каталога CoinGecko. Цена подтянется автоматически.</small>
+  </details>`;
   return act('portfolio','‹  Портфель')+`<section>${header(title,type==='sell'?'Продажа крипты за рубли':'Покупка крипты за рубли')}
     <div class="chips">${act('txtype','Покупка','buy',type==='buy'?'active':'')}${act('txtype','Продажа','sell',type==='sell'?'active':'')}</div>
     <form id="tx-form" class="panel">
@@ -169,6 +206,7 @@ export function buyForm(s){
     ${type==='sell'?note('Доступно для продажи: '+fmt(held,10)+' '+c.symbol+'. Продать можно не больше остатка на выбранную дату.'):''}
     ${note('Сумма в рублях — фактически потраченные или полученные деньги без комиссии. Комиссия увеличивает стоимость покупки или уменьшает выручку от продажи. Цена за монету считается автоматически.')}
     ${note('Операции в один день считаются в порядке добавления. При необходимости измените дату или порядок записей.')}
+    ${searchBlock}
   </section>`;
 }
 

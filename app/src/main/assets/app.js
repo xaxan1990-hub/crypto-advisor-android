@@ -1,5 +1,5 @@
 import {utcDay,dayMs,context,score,simulate,finite} from './analysis.js';
-import {loadModels,request,marketRows,fearMap,fundingMap,history,newsFeeds,recordJournal,journalRows,fxRate,latestRelease} from './data.js';
+import {loadModels,request,marketRows,fearMap,fundingMap,history,newsFeeds,recordJournal,journalRows,fxRate,fxRateForDay,searchCoins,extraPrices,latestRelease} from './data.js';
 import {makeKey,legacyToTxs,availableAt,normalizeTxs,nextSeq,parseBackup,buildBackup,mergeTxs} from './portfolio.js';
 import * as view from './views.js';
 
@@ -7,10 +7,10 @@ const main=document.querySelector('#main');
 const RELEASES='https://github.com/xaxan1990-hub/crypto-advisor-android/releases';
 const appVersion=new URLSearchParams(location.search).get('v')||'dev';
 const s={tab:'market',selected:null,models:null,coins:[],fear:new Map(),results:new Map(),query:'',sort:'rank',range:365,
-  txs:[],buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
+  txs:[],extras:[],coinUniverse:[],buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,coinSearch:'',searchResults:null,searchBusy:false,searchError:'',news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
   fx:null,fxError:'',currency:'rub',version:appVersion,releasesUrl:RELEASES,release:null,releaseError:'',updateAvailable:false};
 let refreshJob,newsJob,journalTicket=0,epoch=0,bulkTicket=0,loading=new Map(),histories=new Map(),fearJob,fxJob;
-let marketFromDisk=false,toastTimeout,portfolioLocked=false;
+let marketFromDisk=false,toastTimeout,portfolioLocked=false,legacyJob=null,extraJob=null;
 
 function toast(text){
   const el=document.querySelector('#message');el.textContent=text;
@@ -35,23 +35,113 @@ function storeTxs(next){
     return true;
   }catch{toast('Хранилище заполнено. Изменения не сохранены.');return false;}
 }
-function upgradeLegacy(){
-  if(!s.fx)return;
+function readExtras(){
+  try{
+    const list=JSON.parse(localStorage.getItem('portfolio-coins')||'[]');
+    if(!Array.isArray(list))return [];
+    return list.filter(c=>c&&typeof c.id==='string'&&c.id).map(c=>({
+      id:c.id,
+      name:String(c.name||c.symbol||c.id),
+      symbol:String(c.symbol||c.id).toUpperCase(),
+      price:finite(Number(c.price))&&Number(c.price)>0?Number(c.price):null,
+      at:Number(c.at)||0,
+    }));
+  }catch{return [];}
+}
+function saveExtras(){
+  try{localStorage.setItem('portfolio-coins',JSON.stringify(s.extras));}catch{}
+}
+function rebuildUniverse(){
+  s.coinUniverse=[...s.coins,...s.extras.filter(e=>!s.coins.some(c=>c.id===e.id))];
+}
+function addExtra(coin){
+  if(!coin?.id)return;
+  const entry={
+    id:String(coin.id),
+    name:String(coin.name||coin.symbol||coin.id),
+    symbol:String(coin.symbol||coin.id).toUpperCase(),
+    price:finite(Number(coin.price))&&Number(coin.price)>0?Number(coin.price):null,
+    at:Number(coin.at)||0,
+  };
+  const index=s.extras.findIndex(x=>x.id===entry.id);
+  if(index>=0)s.extras[index]={...s.extras[index],...entry};
+  else s.extras.push(entry);
+  saveExtras();rebuildUniverse();
+}
+function syncExtras(){
+  const known=new Set([...s.coins,...s.extras].map(c=>c.id));
   let changed=false;
-  const next=s.txs.map(tx=>{
-    if(tx.rub==null&&finite(tx.priceUsd)&&finite(tx.qty)&&s.fx.rate>0){
-      changed=true;
-      return {...tx,rub:Number(tx.qty)*Number(tx.priceUsd)*s.fx.rate,legacy:true};
+  for(const tx of s.txs){
+    if(!tx.coin||known.has(tx.coin))continue;
+    known.add(tx.coin);
+    const symbol=String(tx.symbol||tx.coin).toUpperCase();
+    s.extras.push({id:tx.coin,name:symbol,symbol,price:null,at:0});
+    changed=true;
+  }
+  if(changed){saveExtras();rebuildUniverse();}
+}
+async function refreshExtraPrices(){
+  if(extraJob)return extraJob;
+  const ids=s.extras.filter(e=>e.id&&!s.coins.some(c=>c.id===e.id)).map(e=>e.id);
+  if(!ids.length){rebuildUniverse();return;}
+  extraJob=(async()=>{
+    try{
+      const prices=await extraPrices(ids);
+      let changed=false;
+      s.extras=s.extras.map(e=>{
+        const found=prices.get(e.id);
+        if(!found)return e;
+        changed=true;
+        return {...e,price:found.price,at:found.at};
+      });
+      if(changed){
+        saveExtras();rebuildUniverse();
+        if(s.tab==='portfolio'||s.tab==='add')render();
+      }
+    }catch{}
+    finally{extraJob=null;}
+  })();
+  return extraJob;
+}
+function upgradeLegacy(){
+  if(legacyJob)return legacyJob;
+  legacyJob=(async()=>{
+    const original=s.txs;
+    const pending=original.filter(tx=>tx.rub==null&&finite(tx.priceUsd)&&finite(tx.qty)&&tx.qty>0);
+    if(!pending.length)return;
+    const rates=new Map();
+    const days=[...new Set(pending.map(tx=>tx.day))];
+    for(let i=0;i<days.length;i+=4){
+      await Promise.all(days.slice(i,i+4).map(async day=>{
+        try{rates.set(day,await fxRateForDay(day));}catch{}
+      }));
     }
-    return tx;
-  });
-  if(changed){
+    let changed=false,approx=0;
+    const next=original.map(tx=>{
+      if(tx.rub!=null||!finite(tx.priceUsd)||!finite(tx.qty)||tx.qty<=0)return tx;
+      const found=rates.get(tx.day);
+      if(found){
+        changed=true;
+        return {...tx,rub:Number(tx.qty)*Number(tx.priceUsd)*found.rate,legacy:true,rateDate:found.date,fxApprox:false};
+      }
+      if(s.fx&&finite(s.fx.rate)&&s.fx.rate>0){
+        changed=true;approx++;
+        return {...tx,rub:Number(tx.qty)*Number(tx.priceUsd)*s.fx.rate,legacy:true,fxApprox:true};
+      }
+      return tx;
+    });
+    if(!changed)return;
+    if(s.txs!==original)return;
     s.txs=next;
     if(!portfolioLocked){
       try{localStorage.setItem('portfolio-v2',JSON.stringify(next));}catch{}
-      toast('Старый портфель пересчитан в рубли по текущему курсу.');
     }
-  }
+    toast(approx
+      ? 'Старый портфель пересчитан: '+approx+' операций по текущему курсу, остальные — по курсу ЦБ на дату.'
+      : 'Старый портфель пересчитан по курсу ЦБ на дату операции.');
+    if(s.tab==='portfolio'||s.tab==='add')render();
+  })().finally(()=>{legacyJob=null;});
+  return legacyJob;
 }
 async function loadFx(force=false){
   if(fxJob)return fxJob;
@@ -153,6 +243,8 @@ async function checkUpdate(){
 }
 function render(){
   if(!s.models)return;
+  syncExtras();
+  rebuildUniverse();
   s.today=utcDay(Date.now());
   const tab=s.tab==='detail'||s.tab==='sim'?'market':s.tab==='add'?'portfolio':s.tab;
   document.querySelectorAll('nav button').forEach(b=>{if(b.dataset.tab===tab)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
@@ -166,7 +258,7 @@ function updateTxCalc(){
   if(!f||!out)return;
   const editKey=s.editTx;
   const existing=editKey?s.txs.find(t=>t.key===editKey):null;
-  let coin=s.coins.find(c=>c.id===f.elements.coin?.value);
+  let coin=(s.coinUniverse||s.coins).find(c=>c.id===f.elements.coin?.value);
   if(!coin&&existing)coin={id:existing.coin,symbol:existing.symbol};
   const qty=Number(f.elements.qty?.value),rub=Number(f.elements.rub?.value);
   const feeRaw=f.elements.fee?.value,fee=feeRaw===''||feeRaw==null?0:Number(feeRaw);
@@ -196,8 +288,34 @@ function safeMarketRender(){
 function go(tab){
   if(tab!=='add')s.editTx=null;
   s.tab=tab;s.remove=null;window.scrollTo(0,0);render();
+  if(tab==='portfolio'&&s.extras.length)refreshExtraPrices();
   if(tab==='news'&&!s.news)loadNews(false);
   if(tab==='research')readJournal();
+}
+async function runCoinSearch(){
+  const input=document.querySelector('#coin-search');
+  const query=String(input?.value??s.coinSearch??'').trim();
+  s.coinSearch=query;
+  if(query.length<2){
+    s.searchBusy=false;s.searchResults=null;
+    s.searchError='Введите хотя бы 2 символа названия или тикера.';
+    renderCoinSearchResults();return;
+  }
+  s.searchBusy=true;s.searchResults=null;s.searchError='';
+  renderCoinSearchResults();
+  try{
+    s.searchResults=await searchCoins(query);
+    s.searchError=s.searchResults.length?'':'Ничего не найдено. Проверьте название или тикер.';
+  }catch{
+    s.searchResults=[];
+    s.searchError='Поиск CoinGecko недоступен. Проверьте соединение и повторите.';
+  }
+  s.searchBusy=false;
+  renderCoinSearchResults();
+}
+function renderCoinSearchResults(){
+  const el=document.querySelector('#coin-search-results');
+  if(el)el.innerHTML=view.coinSearchResults(s);
 }
 async function readJournal(){
   const ticket=++journalTicket;
@@ -248,18 +366,20 @@ async function marketRefresh(force=false){
   if(refreshJob)return refreshJob;
   const next=(async()=>{
     try{
-      if(force){await loadFx(true);upgradeLegacy();}
+      if(force){await loadFx(true);await upgradeLegacy();}
       const pack=await request('market','',force),coins=marketRows(pack.data,s.models.config);
       if(!coins.length)throw Error('Пустой рейтинг');
       const wanted=s.selected;
       epoch++;bulkTicket++;s.bulk=false;s.bulkNote='';loading=new Map();histories=new Map();
       s.coins=coins;s.results=new Map();s.marketTime=pack.at;s.stale=!!pack.stale;marketFromDisk=!!pack.stale;s.marketError='';
+      syncExtras();rebuildUniverse();
       if(!coins.some(c=>c.id===wanted)&&['detail','sim'].includes(s.tab))s.tab='market';
       s.fear=new Map();
       fearJob=request('fear','',force).then(x=>({map:fearMap(x.data.data),stale:!!x.stale})).catch(()=>null);
       const current=epoch;
       fearJob.then(f=>{if(f&&epoch===current){s.fear=f.map;safeMarketRender();}});
       if(s.tab!=='add')render();
+      if(s.extras.length)refreshExtraPrices();
       const id=['detail','sim'].includes(s.tab)?wanted:'bitcoin',target=coins.find(c=>c.id===id);
       if(target){
         try{await analyze(target,force);}catch{if(s.selected===id)s.detailError='История цен недоступна.';}
@@ -315,9 +435,19 @@ document.addEventListener('click',event=>{
     case 'range':s.range=Number(id);render();break;
     case 'analyze':bulk();break;
     case 'newsmode':s.important=id==='important';render();break;
-    case 'add':s.editTx=null;s.buyCoin=id||null;s.txType='buy';go('add');break;
+    case 'add':s.editTx=null;s.buyCoin=id||null;s.txType='buy';s.searchResults=null;s.searchError='';s.coinSearch='';go('add');break;
     case 'askedit':{const tx=s.txs.find(t=>t.key===id);if(tx){s.editTx=tx.key;s.buyCoin=tx.coin;s.txType=tx.type;go('add');}break;}
     case 'canceledit':s.editTx=null;go('portfolio');break;
+    case 'coinsearch':runCoinSearch();break;
+    case 'pickcoin':{
+      const coin=s.searchResults?.find(c=>c.id===id);
+      if(coin){
+        if(!s.coins.some(c=>c.id===coin.id))addExtra(coin);
+        s.buyCoin=coin.id;s.searchResults=null;s.searchError='';s.coinSearch=coin.symbol;
+        render();
+      }
+      break;
+    }
     case 'txtype':s.txType=id==='sell'?'sell':'buy';render();break;
     case 'currency':s.currency=id==='usd'?'usd':'rub';try{localStorage.setItem('portfolio-currency',s.currency);}catch{}render();break;
     case 'export':exportPortfolio();break;
@@ -325,12 +455,14 @@ document.addEventListener('click',event=>{
     case 'importreplace':
       if(Array.isArray(s.importTxs)&&storeTxs(s.importTxs)){
         s.importTxs=null;s.importSkipped=0;s.importCurrency=null;
+        syncExtras();rebuildUniverse();refreshExtraPrices();
         toast('Портфель заменён импортированными операциями.');go('portfolio');
       }
       break;
     case 'importmerge':
       if(Array.isArray(s.importTxs)&&storeTxs(mergeTxs(s.txs,s.importTxs))){
         s.importTxs=null;s.importSkipped=0;s.importCurrency=null;
+        syncExtras();rebuildUniverse();refreshExtraPrices();
         toast('Импортированные операции добавлены.');go('portfolio');
       }
       break;
@@ -345,6 +477,7 @@ document.addEventListener('click',event=>{
 });
 document.addEventListener('input',e=>{
   if(e.target.id==='search'){s.query=e.target.value;document.querySelector('#coin-list').innerHTML=view.coinRows(s);}
+  if(e.target.id==='coin-search')s.coinSearch=e.target.value;
   if(e.target.closest('#tx-form'))updateTxCalc();
 });
 document.addEventListener('change',e=>{
@@ -355,7 +488,7 @@ document.addEventListener('submit',e=>{
   e.preventDefault();const f=e.target, v=new FormData(f);
   if(f.id==='tx-form'){
     const type=v.get('type')==='sell'?'sell':'buy';
-    let coin=s.coins.find(c=>c.id===v.get('coin'));
+    let coin=(s.coinUniverse||s.coins).find(c=>c.id===v.get('coin'));
     const editKey=s.editTx;
     const existing=editKey?s.txs.find(t=>t.key===editKey):null;
     if(!coin&&existing&&existing.coin===v.get('coin'))coin={id:existing.coin,symbol:existing.symbol};
@@ -378,7 +511,7 @@ document.addEventListener('submit',e=>{
         return;
       }
     }
-    const base={type,coin:coin.id,symbol:coin.symbol,qty,rub,fee,day,note:String(v.get('note')||'').trim()};
+    const base={type,coin:coin.id,symbol:coin.symbol,qty,rub,fee,day,note:String(v.get('note')||'').trim(),legacy:false,rateDate:null,fxApprox:false};
     if(editKey){
       if(!existing){toast('Операция не найдена.');s.editTx=null;render();return;}
       const next=s.txs.map(t=>t.key===editKey?{...t,...base,key:existing.key,seq:existing.seq}:t);
@@ -404,12 +537,15 @@ window.advisorBack=()=>{
 };
 async function start(){
   s.txs=readPortfolio();
+  s.extras=readExtras();
+  syncExtras();
+  rebuildUniverse();
   try{const saved=localStorage.getItem('portfolio-currency');s.currency=saved==='usd'?'usd':'rub';}catch{}
   try{
     s.models=await loadModels();
     render();
-    loadFx(false).then(()=>{
-      upgradeLegacy();
+    loadFx(false).then(async()=>{
+      await upgradeLegacy();
       if(s.tab==='portfolio'||s.tab==='add')render();
     });
     await marketRefresh();
