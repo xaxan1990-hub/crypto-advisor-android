@@ -22,7 +22,7 @@ const base = {
   fxError: '',
   currency: 'rub',
   today: '2026-11-27',
-  version: '0.2.0',
+  version: '0.3.0',
   releasesUrl: 'https://github.com/xaxan1990-hub/crypto-advisor-android/releases',
   release: null,
   releaseError: '',
@@ -69,12 +69,37 @@ test('transaction form has RUB amount, crypto amount and buy/sell switch', () =>
   const sell = view.buyForm({...base, txType: 'sell'});
   assert.match(sell, /name="type" value="sell"/);
   assert.match(sell, /Сколько рублей получили/);
-  assert.match(sell, /Сейчас доступно:/);
+  assert.match(sell, /Доступно для продажи:/);
+  assert.match(sell, /name="fee"/);
+});
+
+test('transaction form edits an existing operation and keeps its coin', () => {
+  const tx = {key: 'edit-me', type: 'sell', coin: 'ethereum', symbol: 'ETH', qty: 0.25, rub: 50000, fee: 250, day: '2026-11-20', note: 'тест', seq: 7};
+  const html = view.buyForm({...base, txs: [tx], editTx: 'edit-me', txType: 'sell', buyCoin: 'ethereum'});
+  assert.match(html, /Редактировать операцию/);
+  assert.match(html, /Сохранить изменения/);
+  assert.match(html, /value="0\.25"/);
+  assert.match(html, /value="50000"/);
+  assert.match(html, /value="250"/);
+  assert.match(html, /value="тест"/);
+  assert.match(html, /Отмена/);
+});
+
+test('portfolio exposes export and import controls', () => {
+  const html = view.portfolio({...base});
+  assert.match(html, /Экспорт/);
+  assert.match(html, /Импорт/);
+  const importing = view.portfolio({...base, importTxs: [{key: 'x'}], importSkipped: 1});
+  assert.match(importing, /Импорт портфеля/);
+  assert.match(importing, /Найдено операций: 1/);
+  assert.match(importing, /пропущено 1/);
+  assert.match(importing, /Заменить портфель/);
+  assert.match(importing, /Добавить к текущему/);
 });
 
 test('research page shows installed version and GitHub releases link', () => {
   const html = view.research({...base});
-  assert.match(html, /Установлено: 0\.2\.0/);
+  assert.match(html, /Установлено: 0\.3\.0/);
   assert.match(html, /Открыть GitHub Releases/);
   assert.match(html, /Обновить приложение/);
   assert.match(html, /Только проверить/);

@@ -68,6 +68,10 @@ try{
   await until("!!document.querySelector('#tx-form')");
   await exec("document.querySelector('[name=qty]').value='2';document.querySelector('[name=rub]').value='200000';document.querySelector('#tx-form').requestSubmit()");
   await until("document.body.innerText.includes('Операции') && !!document.querySelector('[data-act=askdelete]')");
+  await click('[data-act="askedit"]');
+  await until("document.body.innerText.includes('Редактировать операцию')");
+  await exec("document.querySelector('[name=fee]').value='500';document.querySelector('#tx-form').requestSubmit()");
+  await until("document.body.innerText.includes('комиссия')");
   await click('[data-act="add"]');
   await click('[data-act="txtype"][data-id="sell"]');
   await exec("document.querySelector('[name=qty]').value='0.5';document.querySelector('[name=rub]').value='60000';document.querySelector('#tx-form').requestSubmit()");

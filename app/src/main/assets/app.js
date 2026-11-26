@@ -1,13 +1,13 @@
 import {utcDay,dayMs,context,score,simulate,finite} from './analysis.js';
 import {loadModels,request,marketRows,fearMap,fundingMap,history,newsFeeds,recordJournal,journalRows,fxRate,latestRelease} from './data.js';
-import {makeKey,legacyToTxs,availableAt} from './portfolio.js';
+import {makeKey,legacyToTxs,availableAt,normalizeTxs,nextSeq,parseBackup,buildBackup,mergeTxs} from './portfolio.js';
 import * as view from './views.js';
 
 const main=document.querySelector('#main');
 const RELEASES='https://github.com/xaxan1990-hub/crypto-advisor-android/releases';
 const appVersion=new URLSearchParams(location.search).get('v')||'dev';
 const s={tab:'market',selected:null,models:null,coins:[],fear:new Map(),results:new Map(),query:'',sort:'rank',range:365,
-  txs:[],buyCoin:null,txType:'buy',remove:null,news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
+  txs:[],buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
   fx:null,fxError:'',currency:'rub',version:appVersion,releasesUrl:RELEASES,release:null,releaseError:'',updateAvailable:false};
 let refreshJob,newsJob,journalTicket=0,epoch=0,bulkTicket=0,loading=new Map(),histories=new Map(),fearJob,fxJob;
 let marketFromDisk=false,toastTimeout,portfolioLocked=false;
@@ -19,11 +19,11 @@ function toast(text){
 function readPortfolio(){
   try{
     const v2=JSON.parse(localStorage.getItem('portfolio-v2')||'null');
-    if(Array.isArray(v2))return v2;
+    if(Array.isArray(v2))return normalizeTxs(v2);
   }catch{portfolioLocked=true;toast('Не удалось прочитать сохранённый портфель.');}
   try{
     const old=JSON.parse(localStorage.getItem('portfolio-v1')||'[]');
-    if(Array.isArray(old))return legacyToTxs(old,null);
+    if(Array.isArray(old))return normalizeTxs(legacyToTxs(old,null));
   }catch{portfolioLocked=true;toast('Не удалось прочитать старый портфель.');}
   return [];
 }
@@ -86,6 +86,56 @@ window.updateStatus=(text,kind)=>{
     el.className='sub '+(kind==='error'?'error':kind==='ok'?'up':'');
   }
 };
+window.portfolioStatus=(text,kind)=>{
+  toast(text);
+  if(s.tab==='portfolio'||s.tab==='add')render();
+};
+window.receivePortfolioImport=text=>{
+  const parsed=parseBackup(text);
+  if(parsed.error){toast(parsed.error);return;}
+  s.importTxs=parsed.txs;
+  s.importSkipped=parsed.skipped||0;
+  s.importCurrency=parsed.currency;
+  s.remove=null;
+  go('portfolio');
+};
+function exportPortfolio(){
+  const json=buildBackup(s.txs,s.currency);
+  const name='portfolio-'+s.today+'.json';
+  if(window.androidPortfolio&&typeof window.androidPortfolio.exportPortfolio==='function'){
+    window.androidPortfolio.exportPortfolio(json,name);
+    return;
+  }
+  try{
+    const blob=new Blob([json],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=name;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast('Файл сформирован.');
+  }catch{toast('Экспорт недоступен.');}
+}
+function importPortfolio(){
+  if(window.androidPortfolio&&typeof window.androidPortfolio.importPortfolio==='function'){
+    window.androidPortfolio.importPortfolio();
+  }else{
+    toast('Импорт доступен в приложении.');
+  }
+}
+async function checkUpdateOnStart(){
+  try{
+    const last=Number(localStorage.getItem('update-check-at')||0);
+    if(Date.now()-last<86400000)return;
+    const rel=await latestRelease(false);
+    s.release=rel;
+    if(appVersion!=='dev'&&isNewer(rel.tag,appVersion)){
+      s.updateAvailable=true;
+      toast('Доступна версия '+rel.tag+'. Откройте «Проверка» → «Обновить приложение».');
+      if(s.tab==='research')render();
+    }
+    try{localStorage.setItem('update-check-at',String(Date.now()));}catch{}
+  }catch{}
+}
 async function checkUpdate(){
   try{
     const rel=await latestRelease(true);
@@ -96,7 +146,7 @@ async function checkUpdate(){
   }catch{
     s.release=null;
     s.updateAvailable=false;
-    s.releaseError='GitHub API недоступен. Для приватного репозитория проверка версий не работает — откройте Releases вручную.';
+    s.releaseError='GitHub API недоступен. Проверьте соединение и повторите позже.';
     toast('Не удалось проверить обновления через GitHub API.');
   }
   if(s.tab==='research')render();
@@ -114,16 +164,24 @@ function updateTxCalc(){
   const f=document.querySelector('#tx-form');
   const out=document.querySelector('#tx-calc');
   if(!f||!out)return;
-  const coin=s.coins.find(c=>c.id===f.elements.coin?.value);
+  const editKey=s.editTx;
+  const existing=editKey?s.txs.find(t=>t.key===editKey):null;
+  let coin=s.coins.find(c=>c.id===f.elements.coin?.value);
+  if(!coin&&existing)coin={id:existing.coin,symbol:existing.symbol};
   const qty=Number(f.elements.qty?.value),rub=Number(f.elements.rub?.value);
+  const feeRaw=f.elements.fee?.value,fee=feeRaw===''||feeRaw==null?0:Number(feeRaw);
   const type=f.elements.type?.value==='sell'?'sell':'buy';
   const price=finite(qty)&&qty>0&&finite(rub)&&rub>0?rub/qty:null;
   const usd=price!==null&&s.fx?price/s.fx.rate:null;
   const day=f.elements.day?.value||s.today;
-  const held=coin?availableAt(s.txs,coin.id,day):0;
+  const held=coin?availableAt(s.txs.filter(t=>t.key!==editKey),coin.id,day):0;
   const parts=[];
   parts.push(price===null?'Укажите количество и сумму в рублях':'Цена за 1: '+price.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽');
   if(usd!==null)parts.push('≈ $'+usd.toLocaleString('ru-RU',{maximumFractionDigits:2}));
+  if(price!==null&&finite(fee)&&fee>0){
+    const effective=(type==='sell'?rub-fee:rub+fee)/qty;
+    parts.push('с комиссией: '+effective.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽ за монету');
+  }
   if(type==='sell'&&coin)parts.push('Доступно на '+day+': '+held.toLocaleString('ru-RU',{maximumFractionDigits:8})+' '+coin.symbol);
   out.textContent=parts.join(' · ');
 }
@@ -136,6 +194,7 @@ function safeMarketRender(){
   render();
 }
 function go(tab){
+  if(tab!=='add')s.editTx=null;
   s.tab=tab;s.remove=null;window.scrollTo(0,0);render();
   if(tab==='news'&&!s.news)loadNews(false);
   if(tab==='research')readJournal();
@@ -256,9 +315,26 @@ document.addEventListener('click',event=>{
     case 'range':s.range=Number(id);render();break;
     case 'analyze':bulk();break;
     case 'newsmode':s.important=id==='important';render();break;
-    case 'add':s.buyCoin=id||null;s.txType='buy';go('add');break;
+    case 'add':s.editTx=null;s.buyCoin=id||null;s.txType='buy';go('add');break;
+    case 'askedit':{const tx=s.txs.find(t=>t.key===id);if(tx){s.editTx=tx.key;s.buyCoin=tx.coin;s.txType=tx.type;go('add');}break;}
+    case 'canceledit':s.editTx=null;go('portfolio');break;
     case 'txtype':s.txType=id==='sell'?'sell':'buy';render();break;
     case 'currency':s.currency=id==='usd'?'usd':'rub';try{localStorage.setItem('portfolio-currency',s.currency);}catch{}render();break;
+    case 'export':exportPortfolio();break;
+    case 'import':importPortfolio();break;
+    case 'importreplace':
+      if(Array.isArray(s.importTxs)&&storeTxs(s.importTxs)){
+        s.importTxs=null;s.importSkipped=0;s.importCurrency=null;
+        toast('Портфель заменён импортированными операциями.');go('portfolio');
+      }
+      break;
+    case 'importmerge':
+      if(Array.isArray(s.importTxs)&&storeTxs(mergeTxs(s.txs,s.importTxs))){
+        s.importTxs=null;s.importSkipped=0;s.importCurrency=null;
+        toast('Импортированные операции добавлены.');go('portfolio');
+      }
+      break;
+    case 'importcancel':s.importTxs=null;s.importSkipped=0;s.importCurrency=null;render();break;
     case 'checkupdate':checkUpdate();break;
     case 'update-app':updateApp();break;
     case 'sim':go('sim');break;
@@ -279,20 +355,38 @@ document.addEventListener('submit',e=>{
   e.preventDefault();const f=e.target, v=new FormData(f);
   if(f.id==='tx-form'){
     const type=v.get('type')==='sell'?'sell':'buy';
-    const coin=s.coins.find(c=>c.id===v.get('coin'));
+    let coin=s.coins.find(c=>c.id===v.get('coin'));
+    const editKey=s.editTx;
+    const existing=editKey?s.txs.find(t=>t.key===editKey):null;
+    if(!coin&&existing&&existing.coin===v.get('coin'))coin={id:existing.coin,symbol:existing.symbol};
     const qty=Number(v.get('qty')),rub=Number(v.get('rub')),day=v.get('day');
+    const feeRaw=v.get('fee'),fee=feeRaw===null||feeRaw===''?0:Number(feeRaw);
     if(!coin||!finite(qty)||qty<=0||!finite(rub)||rub<=0||!/^\d{4}-\d{2}-\d{2}$/.test(day)||day>utcDay(Date.now())){
       toast('Проверьте монету, количество, сумму и дату.');return;
     }
+    if(!finite(fee)||fee<0){
+      toast('Комиссия должна быть нулём или положительным числом.');return;
+    }
+    if(type==='sell'&&fee>rub+1e-9){
+      toast('Комиссия не может быть больше суммы продажи.');return;
+    }
+    const others=editKey?s.txs.filter(t=>t.key!==editKey):s.txs;
     if(type==='sell'){
-      const held=availableAt(s.txs,coin.id,day);
+      const held=availableAt(others,coin.id,day);
       if(qty>held+1e-9){
         toast('На '+day+' доступно '+held.toLocaleString('ru-RU',{maximumFractionDigits:8})+' '+coin.symbol+'.');
         return;
       }
     }
-    const tx={key:makeKey(),type,coin:coin.id,symbol:coin.symbol,qty,rub,day,note:String(v.get('note')||'').trim()};
-    if(storeTxs([...s.txs,tx]))go('portfolio');
+    const base={type,coin:coin.id,symbol:coin.symbol,qty,rub,fee,day,note:String(v.get('note')||'').trim()};
+    if(editKey){
+      if(!existing){toast('Операция не найдена.');s.editTx=null;render();return;}
+      const next=s.txs.map(t=>t.key===editKey?{...t,...base,key:existing.key,seq:existing.seq}:t);
+      if(storeTxs(next)){s.editTx=null;toast('Операция изменена.');go('portfolio');}
+    }else{
+      const tx={key:makeKey(),...base,seq:nextSeq(s.txs)};
+      if(storeTxs([...s.txs,tx]))go('portfolio');
+    }
   }
   if(f.id==='sim-form'){
     const output=document.querySelector('#simulation');
@@ -313,9 +407,13 @@ async function start(){
   try{const saved=localStorage.getItem('portfolio-currency');s.currency=saved==='usd'?'usd':'rub';}catch{}
   try{
     s.models=await loadModels();
-    await loadFx(false);
-    upgradeLegacy();
-    render();await marketRefresh();
+    render();
+    loadFx(false).then(()=>{
+      upgradeLegacy();
+      if(s.tab==='portfolio'||s.tab==='add')render();
+    });
+    await marketRefresh();
+    checkUpdateOnStart();
   }catch{main.textContent='Не удалось открыть встроенные модели. Повторно откройте приложение.';}
 }
 start();

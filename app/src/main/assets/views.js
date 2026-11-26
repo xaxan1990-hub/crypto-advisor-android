@@ -1,5 +1,5 @@
 import {finite,horizons} from './analysis.js';
-import {summarize,availableAt,txRub,sortTxs} from './portfolio.js';
+import {summarize,availableAt,txRub,txFee,sortTxs} from './portfolio.js';
 
 export const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const fmt=(n,d=2)=>finite(n)?n.toLocaleString('ru-RU',{maximumFractionDigits:d}):'—';
@@ -8,7 +8,7 @@ const sign=(v,d=1)=>finite(v)?(v>0?'+':'')+fmt(v,d):'—';
 const color=v=>v>0?'up':v<0?'down':'';
 const pct=v=>finite(v)?sign(v)+'%':'—';
 export const when=t=>finite(t)&&t>0?new Date(t).toLocaleString('ru-RU',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
-const act=(a,label,id='',cls='')=>`<button class="${cls}" data-act="${a}" data-id="${esc(id)}">${esc(label)}</button>`;
+const act=(a,label,id='',cls='')=>`<button type="button" class="${cls}" data-act="${a}" data-id="${esc(id)}">${esc(label)}</button>`;
 const panel=s=>`<div class="panel">${s}</div>`;
 const metric=(name,value)=>`<div class="metric"><small>${esc(name)}</small><strong class="mono">${esc(value)}</strong></div>`;
 const header=(title,sub='')=>`<h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p>`;
@@ -114,46 +114,61 @@ export function portfolio(s){
       <div class="between"><span>П/У: <b class="${p.pl>0?'up':p.pl<0?'down':''}">${show(p.pl)}${finite(p.plPct)?' ('+sign(p.plPct,1)+'%)':''}</b></span></div>
       ${advice(p)}${c?act('coin','Анализ монеты',p.coin):''}`);
   }).join('');
+  const importPanel=Array.isArray(s.importTxs)?`<section><h2>Импорт портфеля</h2><div class="panel">
+    <div class="between"><b>Найдено операций: ${s.importTxs.length}</b>${s.importSkipped?`<small>пропущено ${s.importSkipped}</small>`:''}</div>
+    ${s.importCurrency?note('Валюта в файле: '+(s.importCurrency==='usd'?'доллары':'рубли')+'.'):''}
+    ${note('«Заменить» удалит текущие операции и оставит только импортированные. «Добавить» сохранит текущие и дозапишет новые без дублей по ключу.')}
+    <div class="toolrow">${act('importreplace','Заменить портфель','','cta')}${act('importmerge','Добавить к текущему')}${act('importcancel','Отмена')}</div>
+  </div></section>`:'';
   const txs=sortTxs(s.txs).slice().reverse();
   const txRows=txs.map(tx=>{
-    const rub=txRub(tx,rate),qty=Number(tx.qty),price=finite(rub)&&finite(qty)&&qty>0?rub/qty:null;
+    const rub=txRub(tx,rate),fee=txFee(tx),qty=Number(tx.qty),price=finite(rub)&&finite(qty)&&qty>0?rub/qty:null;
     const sell=tx.type==='sell';
     return `<div class="row"><div class="between"><b class="${sell?'down':'up'}">${sell?'Продажа':'Покупка'} ${esc(tx.symbol)}</b><strong class="mono">${show(rub)}</strong></div>
-      <small>${esc(tx.day)} · ${fmt(tx.qty,10)} × ${show(price)}${tx.legacy?' · старый USD':''}</small>
+      <small>${esc(tx.day)} · ${fmt(tx.qty,10)} × ${show(price)}${fee?` · комиссия ${show(fee)}`:''}${tx.legacy?' · старый USD':''}</small>
       ${tx.note?`<p>${esc(tx.note)}</p>`:''}
-      ${s.remove===tx.key?act('delete','Подтвердить удаление',tx.key)+act('canceldelete','Отмена'):act('askdelete','Удалить',tx.key)}</div>`;
+      <div class="toolrow">${act('askedit','Изменить',tx.key)}${s.remove===tx.key?act('delete','Подтвердить удаление',tx.key)+act('canceldelete','Отмена'):act('askdelete','Удалить',tx.key)}</div></div>`;
   }).join('');
-  return header('Мой портфель','Покупки и продажи сохраняются на этом устройстве')+toggle+note(rateNote)+
+  return header('Мой портфель','Покупки и продажи сохраняются на этом устройстве. Делайте резервные копии.')+importPanel+toggle+note(rateNote)+
     `<div class="hero"><small>Текущая стоимость</small><div class="big">${show(sum.value)}</div>
     <div class="metrics">${metric('Куплено',show(sum.totalBuy))}${metric('Продано',show(sum.totalSell))}${metric('В позициях',show(sum.cost))}</div></div>
     <div class="metrics">${metric('Реализовано',show(sum.realized))}${metric('Нереализовано',show(sum.unrealized))}${metric('Итог',show(sum.total))}</div>
+    ${sum.fees?note('Комиссии учтены в расчёте: '+show(sum.fees)+'.'):''}
     ${!sum.complete?note('Не по всем монетам есть текущая цена — итоговая стоимость неполная.'):''}
     ${sum.oversold?note('В операциях есть продажи больше остатка — они обрезаны при расчёте.'):''}
     ${sum.invalid?note('Некоторые операции не удалось прочитать: '+sum.invalid+'.'):''}
-    ${act('add','Добавить операцию','','cta')}
+    <div class="toolrow">${act('add','Добавить операцию','','cta')}${act('export','Экспорт')}${act('import','Импорт')}</div>
     <section><h2>Позиции</h2>${positions||note('Открытых позиций нет.')}</section>
     <section><h2>Операции</h2>${txRows||note('Пока нет операций.')}</section>`;
 }
 
 export function buyForm(s){
-  if(!s.coins.length)return header('Новая операция')+panel(note('Сначала загрузите котировки на вкладке «Рынок».')+act('market','Открыть рынок'));
+  const edit=s.editTx?s.txs.find(t=>t.key===s.editTx):null;
+  if(!s.coins.length&&!edit)return header('Новая операция')+panel(note('Сначала загрузите котировки на вкладке «Рынок».')+act('market','Открыть рынок'));
   const type=s.txType==='sell'?'sell':'buy';
-  const c=s.coins.find(c=>c.id===s.buyCoin)||s.coins[0];
-  const held=availableAt(s.txs,c.id,s.today);
-  return act('portfolio','‹  Портфель')+`<section>${header('Новая операция',type==='sell'?'Продажа крипты за рубли':'Покупка крипты за рубли')}
+  let c=s.coins.find(x=>x.id===(edit?.coin??s.buyCoin));
+  if(!c&&edit)c={id:edit.coin,symbol:edit.symbol,name:edit.symbol};
+  if(!c)c=s.coins[0];
+  const options=s.coins.map(x=>[x.id,x.symbol+' · '+x.name]);
+  if(!options.some(([id])=>id===c.id))options.unshift([c.id,c.symbol+' · '+c.name]);
+  const held=availableAt(s.txs.filter(t=>t.key!==edit?.key),c.id,s.today);
+  const title=edit?'Редактировать операцию':'Новая операция';
+  return act('portfolio','‹  Портфель')+`<section>${header(title,type==='sell'?'Продажа крипты за рубли':'Покупка крипты за рубли')}
     <div class="chips">${act('txtype','Покупка','buy',type==='buy'?'active':'')}${act('txtype','Продажа','sell',type==='sell'?'active':'')}</div>
     <form id="tx-form" class="panel">
       <input type="hidden" name="type" value="${type}">
-      <label>Монета<select id="tx-coin" name="coin">${opts(s.coins.map(c=>[c.id,c.symbol+' · '+c.name]),c.id)}</select></label>
-      <label>Сколько крипты ${type==='buy'?'получили':'продали'}<input name="qty" inputmode="decimal" type="number" step="any" min="0" required></label>
-      <label>Сколько рублей ${type==='buy'?'потратили':'получили'}<input name="rub" inputmode="decimal" type="number" step="any" min="0" required></label>
-      <label>Дата операции<input name="day" type="date" value="${s.today}" max="${s.today}" required></label>
-      <label>Заметка<input name="note" maxlength="160"></label>
+      <label>Монета<select id="tx-coin" name="coin">${opts(options,c.id)}</select></label>
+      <label>Сколько крипты ${type==='buy'?'получили':'продали'}<input name="qty" inputmode="decimal" type="number" step="any" min="0" value="${edit?esc(edit.qty):''}" required></label>
+      <label>Сколько рублей ${type==='buy'?'потратили':'получили'}<input name="rub" inputmode="decimal" type="number" step="any" min="0" value="${edit&&edit.rub!=null?esc(edit.rub):''}" required></label>
+      <label>Комиссия, ₽ (необязательно)<input name="fee" inputmode="decimal" type="number" step="any" min="0" value="${edit&&Number(edit.fee)>0?esc(edit.fee):''}"></label>
+      <label>Дата операции<input name="day" type="date" value="${edit?esc(edit.day):s.today}" max="${s.today}" required></label>
+      <label>Заметка<input name="note" maxlength="160" value="${edit?esc(edit.note):''}"></label>
       <div id="tx-calc" class="sub"></div>
-      <button class="cta">Сохранить операцию</button>
+      <div class="toolrow"><button class="cta">${edit?'Сохранить изменения':'Сохранить операцию'}</button>${edit?act('canceledit','Отмена'):''}</div>
     </form>
-    ${type==='sell'?note('Сейчас доступно: '+fmt(held,10)+' '+c.symbol+'. Продать можно не больше остатка на выбранную дату.'):''}
-    ${note('Сумма в рублях — фактически потраченные или полученные деньги. Цена за монету считается автоматически.')}
+    ${type==='sell'?note('Доступно для продажи: '+fmt(held,10)+' '+c.symbol+'. Продать можно не больше остатка на выбранную дату.'):''}
+    ${note('Сумма в рублях — фактически потраченные или полученные деньги без комиссии. Комиссия увеличивает стоимость покупки или уменьшает выручку от продажи. Цена за монету считается автоматически.')}
+    ${note('Операции в один день считаются в порядке добавления. При необходимости измените дату или порядок записей.')}
   </section>`;
 }
 

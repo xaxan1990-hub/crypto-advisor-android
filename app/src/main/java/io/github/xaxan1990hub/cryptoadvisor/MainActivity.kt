@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.pm.ApplicationInfo
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
@@ -17,10 +18,41 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
 
 class MainActivity : ComponentActivity() {
     private lateinit var web: WebView
     private val appHost = "appassets.androidplatform.net"
+    private val exportFile by lazy { File(cacheDir, "portfolio-export.json") }
+
+    private val exportDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            val json = if (exportFile.exists()) exportFile.readText() else throw IOException("Нет данных для экспорта")
+            contentResolver.openOutputStream(uri, "wt")?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                ?: throw IOException("Не удалось открыть файл")
+            exportFile.delete()
+            portfolioStatus("Портфель сохранён.", "ok")
+        } catch (e: Exception) {
+            portfolioStatus("Не удалось сохранить: ${e.message ?: "ошибка"}", "error")
+        }
+    }
+
+    private val importDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            val bytes = readLimited(uri, 2_000_000)
+            val text = bytes.toString(Charsets.UTF_8)
+            web.evaluateJavascript(
+                "window.receivePortfolioImport && window.receivePortfolioImport(${JSONObject.quote(text)})",
+                null
+            )
+        } catch (e: Exception) {
+            portfolioStatus("Не удалось прочитать файл: ${e.message ?: "ошибка"}", "error")
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,6 +84,36 @@ class MainActivity : ComponentActivity() {
                 updater.checkAndUpdate()
             }
         }, "androidUpdater")
+        web.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun exportPortfolio(json: String, fileName: String) {
+                runOnUiThread {
+                    try {
+                        if (json.length > 5_000_000) throw IOException("Слишком большой объём данных")
+                        exportFile.writeText(json)
+                        val safe = fileName
+                            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                            .take(80)
+                            .ifBlank { "portfolio.json" }
+                            .let { if (it.endsWith(".json", true)) it else "$it.json" }
+                        exportDocument.launch(safe)
+                    } catch (e: Exception) {
+                        portfolioStatus("Не удалось подготовить экспорт: ${e.message ?: "ошибка"}", "error")
+                    }
+                }
+            }
+
+            @JavascriptInterface
+            fun importPortfolio() {
+                runOnUiThread {
+                    try {
+                        importDocument.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                    } catch (e: Exception) {
+                        portfolioStatus("Не удалось открыть выбор файла: ${e.message ?: "ошибка"}", "error")
+                    }
+                }
+            }
+        }, "androidPortfolio")
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
@@ -81,8 +143,14 @@ class MainActivity : ComponentActivity() {
                         else -> return response("text/plain", "Not found", 404)
                     }
                     if (!path.matches(Regex("(models/)?[a-z0-9_-]+\\.[a-z]+"))) return response("text/plain", "Not found", 404)
-                    try { WebResourceResponse(mime, "utf-8", assets.open(path)) }
-                    catch (_: java.io.IOException) { response("text/plain", "Not found", 404) }
+                    try {
+                        WebResourceResponse(mime, "utf-8", assets.open(path)).apply {
+                            responseHeaders = mapOf(
+                                "Cache-Control" to "no-store",
+                                "X-Content-Type-Options" to "nosniff",
+                            )
+                        }
+                    } catch (_: java.io.IOException) { response("text/plain", "Not found", 404) }
                 }
             }
         }
@@ -99,6 +167,32 @@ class MainActivity : ComponentActivity() {
     private fun response(type: String, body: String, status: Int = 200) =
         WebResourceResponse(type, "utf-8", status, if (status == 200) "OK" else "Unavailable",
             mapOf("Cache-Control" to "no-store", "X-Content-Type-Options" to "nosniff"), body.byteInputStream())
+
+    private fun readLimited(uri: Uri, limit: Int): ByteArray {
+        val input = contentResolver.openInputStream(uri) ?: throw IOException("Файл недоступен")
+        input.use {
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val read = it.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > limit) throw IOException("Файл больше ${limit / 1_000_000} МБ")
+                out.write(buffer, 0, read)
+            }
+            return out.toByteArray()
+        }
+    }
+
+    private fun portfolioStatus(text: String, kind: String = "info") {
+        web.post {
+            web.evaluateJavascript(
+                "window.portfolioStatus && window.portfolioStatus(${JSONObject.quote(text)}, ${JSONObject.quote(kind)})",
+                null
+            )
+        }
+    }
 
     override fun onDestroy() {
         (web.parent as? ViewGroup)?.removeView(web)
