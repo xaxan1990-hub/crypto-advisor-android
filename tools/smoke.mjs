@@ -70,7 +70,7 @@ try{
   await click('[data-act="add"]');
   await until("!!document.querySelector('#tx-form')");
   await exec("document.querySelector('[name=qty]').value='2';document.querySelector('[name=rub]').value='200000';document.querySelector('#tx-form').requestSubmit()");
-  await until("document.body.innerText.includes('Операции') && !!document.querySelector('[data-act=askdelete]')");
+  await until("document.body.innerText.includes('История операций') && !!document.querySelector('[data-act=askdelete]')");
   await click('[data-act="askedit"]');
   await until("document.body.innerText.includes('Редактировать операцию')");
   await exec("document.querySelector('[name=fee]').value='500';document.querySelector('#tx-form').requestSubmit()");
@@ -81,7 +81,7 @@ try{
   await until("document.body.innerText.includes('Продажа') && document.querySelectorAll('[data-act=askdelete]').length===2");
   await send('Page.reload',{ignoreCache:true});
   await until("document.querySelectorAll('.coin').length===2");
-  await click('[data-tab="portfolio"]');await until("!!document.querySelector('[data-act=askdelete]')");
+  await click('[data-tab="portfolio"]');await click('[data-act=ptab][data-id="history"]');await until("!!document.querySelector('[data-act=askdelete]')");
   await click('[data-tab="research"]');await until("document.body.innerText.includes('BTC · 7 дн.')");
   await click('[data-tab="news"]');await until("document.body.innerText.includes('Bitcoin ETF approval')");
   await click('[data-tab="portfolio"]');
@@ -92,8 +92,11 @@ try{
   await click('[data-act="pickcoin"]');
   await until("document.querySelector('#tx-coin').value==='pepe'");
   await exec("document.querySelector('[name=qty]').value='1000000';document.querySelector('[name=rub]').value='800';document.querySelector('#tx-form').requestSubmit()");
-  await until("document.body.innerText.includes('PEPE') && document.body.innerText.includes('Операции')");
+  await until("document.body.innerText.includes('PEPE') && document.body.innerText.includes('История операций')");
+  await click('[data-act=ptab][data-id="overview"]');
   await until("document.body.innerText.includes('Чистые вложения')");
+  await click('[data-act=ptab][data-id="alerts"]');
+  await until("!!document.querySelector('#alert-form')");
   await exec("document.querySelector('#alert-form [name=target]').value='100000';document.querySelector('#alert-form').requestSubmit()");
   await until("document.body.innerText.includes('BTC ≥')");
   await click('[data-tab="market"]');

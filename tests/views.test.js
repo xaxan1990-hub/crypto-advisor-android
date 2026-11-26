@@ -52,12 +52,12 @@ test('portfolio renders RUB, buy/sell rows and P&L', () => {
       {key: 'b', type: 'sell', coin: 'ethereum', symbol: 'ETH', qty: 0.5, rub: 120000, day: '2026-11-21'},
     ],
   };
-  const html = view.portfolio(s);
+  const html = view.portfolio({...s, portfolioTab: 'history'});
   assert.match(html, /Мой портфель/);
-  assert.match(html, /Операции/);
+  assert.match(html, /История операций/);
   assert.match(html, /Продажа/);
-  assert.match(html, /1 \$ = 80 ₽/);
-  assert.match(html, /Реализовано/);
+  assert.match(html, /Курс ЦБ: 1 \$ = 80 ₽/);
+  assert.match(html, /Реализованная прибыль/);
 });
 
 test('transaction form has RUB amount, crypto amount and buy/sell switch', () => {
@@ -68,8 +68,8 @@ test('transaction form has RUB amount, crypto amount and buy/sell switch', () =>
   assert.match(buy, /name="type" value="buy"/);
   const sell = view.buyForm({...base, txType: 'sell'});
   assert.match(sell, /name="type" value="sell"/);
-  assert.match(sell, /Сколько рублей получили/);
-  assert.match(sell, /Доступно для продажи:/);
+  assert.match(sell, /Сумма, ₽/);
+  assert.match(sell, /Доступно:/);
   assert.match(sell, /name="fee"/);
 });
 
@@ -115,7 +115,8 @@ test('coin chart renders Japanese candlesticks with OHLC titles', () => {
   assert.match(html, /Японские свечи/);
   assert.match(html, /<rect/);
   assert.match(html, /O 100/);
-  assert.match(html, /зелёные — рост, красные — падение/);
+  assert.match(html, /Рост/);
+  assert.match(html, /Падение/);
 });
 
 test('custom CoinGecko coin appears in the transaction form and portfolio', () => {
@@ -146,15 +147,15 @@ test('portfolio value chart draws value and invested lines', () => {
     {day: '2026-11-21', value: 220000, invested: 200000},
     {day: '2026-11-22', value: 210000, invested: 200000},
   ]}});
-  assert.match(html, /Динамика портфеля/);
+  assert.match(html, /Динамика/);
   assert.match(html, /Чистые вложения/);
-  assert.match(html, /Стоимость ·/);
+  assert.match(html, /Стоимость/);
   assert.match(html, /chartrange/);
 });
 
 
 test('portfolio alerts panel shows targets and permission controls', () => {
-  const html = view.portfolio({...base, notifEnabled: false, alerts: [
+  const html = view.portfolio({...base, portfolioTab: 'alerts', notifEnabled: false, alerts: [
     {key: 'a', coin: 'bitcoin', symbol: 'BTC', above: true, targetUsd: 100000, targetRub: 8000000, currency: 'rub', enabled: true, targetLabel: '8 000 000 ₽'},
   ]});
   assert.match(html, /Уведомления о цене/);

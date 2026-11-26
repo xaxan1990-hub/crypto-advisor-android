@@ -8,14 +8,36 @@ const main=document.querySelector('#main');
 const RELEASES='https://github.com/xaxan1990-hub/crypto-advisor-android/releases';
 const appVersion=new URLSearchParams(location.search).get('v')||'dev';
 const s={tab:'market',selected:null,models:null,coins:[],fear:new Map(),results:new Map(),query:'',sort:'rank',range:365,
-  txs:[],extras:[],coinUniverse:[],alerts:[],removeAlert:null,notifEnabled:true,buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,coinSearch:'',searchResults:null,searchBusy:false,searchError:'',news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
+  txs:[],extras:[],coinUniverse:[],alerts:[],removeAlert:null,notifEnabled:true,portfolioTab:'overview',buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,coinSearch:'',searchResults:null,searchBusy:false,searchError:'',news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
   fx:null,fxError:'',currency:'rub',portfolioRange:365,chartSeries:null,chartBusy:false,chartError:'',chartNote:'',chartKey:'',version:appVersion,releasesUrl:RELEASES,release:null,releaseError:'',updateAvailable:false};
 let refreshJob,newsJob,journalTicket=0,epoch=0,bulkTicket=0,loading=new Map(),histories=new Map(),fearJob,fxJob;
 let marketFromDisk=false,toastTimeout,portfolioLocked=false,legacyJob=null,extraJob=null,chartTicket=0;
 
-function toast(text){
-  const el=document.querySelector('#message');el.textContent=text;
-  clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>el.textContent='',4500);
+function toastKind(text){
+  if(/не удалось|ошибк|недоступ|проверьте|заполнен|не найден|не разреш|слишком|отменена|нельзя/i.test(text))return 'error';
+  if(/сохран|добавлен|изменен|удален|обновлен|разреш|включен|готов|заменён|импортирован/i.test(text))return 'ok';
+  return 'info';
+}
+function hideToast(){
+  const el=document.querySelector('#message');
+  if(el&&el.classList.contains('show'))el.classList.remove('show');
+}
+function toast(text,kind,actionLabel,action){
+  const el=document.querySelector('#message');
+  if(!el)return;
+  clearTimeout(toastTimeout);
+  el.className='show '+(kind||toastKind(text));
+  el.replaceChildren();
+  const label=document.createElement('span');
+  label.textContent=text;
+  el.append(label);
+  if(actionLabel&&typeof action==='function'){
+    const button=document.createElement('button');
+    button.type='button';button.textContent=actionLabel;
+    button.addEventListener('click',()=>{hideToast();action();},{once:true});
+    el.append(button);
+  }
+  toastTimeout=setTimeout(hideToast,actionLabel?7000:4500);
 }
 function readPortfolio(){
   try{
@@ -331,9 +353,30 @@ function render(){
   s.today=utcDay(Date.now());
   const tab=s.tab==='detail'||s.tab==='sim'?'market':s.tab==='add'?'portfolio':s.tab;
   document.querySelectorAll('nav button').forEach(b=>{if(b.dataset.tab===tab)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
-  main.innerHTML=({market:view.market,detail:view.detail,news:view.news,portfolio:view.portfolio,add:view.buyForm,sim:view.simulator,research:view.research})[s.tab](s);
+  const offline=s.stale&&['market','portfolio'].includes(s.tab)?'<div class="offline">Нет свежих данных — показаны сохранённые котировки.</div>':'';
+  main.innerHTML=view.updateBanner(s)+offline+({market:view.market,detail:view.detail,news:view.news,portfolio:view.portfolio,add:view.buyForm,sim:view.simulator,research:view.research})[s.tab](s);
   document.querySelector('#refresh').disabled=!!refreshJob||!!newsJob;
   if(s.tab==='add')updateTxCalc();
+}
+function num(value){
+  const text=String(value??'').replace(/\s+/g,'').replace(',','.');
+  const n=Number(text);
+  return finite(n)?n:NaN;
+}
+function setFormError(id,text){
+  const el=document.querySelector('#'+id);
+  if(el){el.textContent=text;el.scrollIntoView({block:'nearest'});}
+  else toast(text);
+}
+function clearFormError(id){
+  const el=document.querySelector('#'+id);
+  if(el)el.textContent='';
+}
+function captureDraft(){
+  const f=document.querySelector('#tx-form');
+  if(!f||s.editTx)return;
+  s.txDraft={coin:f.elements.coin?.value||'',qty:f.elements.qty?.value||'',rub:f.elements.rub?.value||'',
+    fee:f.elements.fee?.value||'',day:f.elements.day?.value||s.today,note:f.elements.note?.value||''};
 }
 function updateTxCalc(){
   const f=document.querySelector('#tx-form');
@@ -343,8 +386,8 @@ function updateTxCalc(){
   const existing=editKey?s.txs.find(t=>t.key===editKey):null;
   let coin=(s.coinUniverse||s.coins).find(c=>c.id===f.elements.coin?.value);
   if(!coin&&existing)coin={id:existing.coin,symbol:existing.symbol};
-  const qty=Number(f.elements.qty?.value),rub=Number(f.elements.rub?.value);
-  const feeRaw=f.elements.fee?.value,fee=feeRaw===''||feeRaw==null?0:Number(feeRaw);
+  const qty=num(f.elements.qty?.value),rub=num(f.elements.rub?.value);
+  const feeRaw=f.elements.fee?.value,fee=feeRaw===''||feeRaw==null?0:num(feeRaw);
   const type=f.elements.type?.value==='sell'?'sell':'buy';
   const price=finite(qty)&&qty>0&&finite(rub)&&rub>0?rub/qty:null;
   const usd=price!==null&&s.fx?price/s.fx.rate:null;
@@ -369,7 +412,7 @@ function safeMarketRender(){
   render();
 }
 function go(tab){
-  if(tab!=='add')s.editTx=null;
+  if(tab!=='add'){s.editTx=null;s.txDraft=null;}
   s.tab=tab;s.remove=null;window.scrollTo(0,0);render();
   if(tab==='portfolio'){refreshAlerts();loadPortfolioChart();if(s.extras.length)refreshExtraPrices();}
   if(tab==='news'&&!s.news)loadNews(false);
@@ -520,20 +563,37 @@ document.addEventListener('click',event=>{
     case 'range':s.range=Number(id);render();break;
     case 'analyze':bulk();break;
     case 'newsmode':s.important=id==='important';render();break;
-    case 'add':s.editTx=null;s.buyCoin=id||null;s.txType='buy';s.searchResults=null;s.searchError='';s.coinSearch='';go('add');break;
+    case 'add':s.editTx=null;s.txDraft=null;s.buyCoin=id||null;s.txType='buy';s.searchResults=null;s.searchError='';s.coinSearch='';go('add');break;
+    case 'addsell':s.editTx=null;s.txDraft=null;s.buyCoin=id||null;s.txType='sell';s.searchResults=null;s.searchError='';s.coinSearch='';go('add');break;
+    case 'ptab':s.portfolioTab=['overview','positions','history','alerts'].includes(id)?id:'overview';try{localStorage.setItem('portfolio-tab',s.portfolioTab);}catch{}s.removeAlert=null;s.remove=null;render();if(s.portfolioTab==='alerts')refreshAlerts();break;
+    case 'sellpct':{
+      if(!id)break;
+      const f=document.querySelector('#tx-form');
+      if(!f)break;
+      const coin=(s.coinUniverse||s.coins).find(c=>c.id===f.elements.coin?.value);
+      const day=f.elements.day?.value||s.today;
+      if(!coin)break;
+      const held=availableAt(s.txs.filter(t=>t.key!==s.editTx),coin.id,day);
+      const qty=held*(Number(id)/100);
+      f.elements.qty.value=qty>0?String(Number(qty.toFixed(10))):'';
+      updateTxCalc();
+      break;
+    }
     case 'askedit':{const tx=s.txs.find(t=>t.key===id);if(tx){s.editTx=tx.key;s.buyCoin=tx.coin;s.txType=tx.type;go('add');}break;}
     case 'canceledit':s.editTx=null;go('portfolio');break;
     case 'coinsearch':runCoinSearch();break;
     case 'pickcoin':{
       const coin=s.searchResults?.find(c=>c.id===id);
       if(coin){
+        captureDraft();
         if(!s.coins.some(c=>c.id===coin.id))addExtra(coin);
-        s.buyCoin=coin.id;s.searchResults=null;s.searchError='';s.coinSearch=coin.symbol;
+        s.buyCoin=coin.id;s.txDraft={...(s.txDraft||{}),coin:coin.id};
+        s.searchResults=null;s.searchError='';s.coinSearch=coin.symbol;
         render();
       }
       break;
     }
-    case 'txtype':s.txType=id==='sell'?'sell':'buy';render();break;
+    case 'txtype':captureDraft();s.txType=id==='sell'?'sell':'buy';render();break;
     case 'currency':s.currency=id==='usd'?'usd':'rub';try{localStorage.setItem('portfolio-currency',s.currency);}catch{}render();break;
     case 'chartrange':s.portfolioRange=Number(id)||365;s.chartKey='';render();loadPortfolioChart();break;
     case 'loadchart':s.chartKey='';loadPortfolioChart();break;
@@ -573,13 +633,29 @@ document.addEventListener('click',event=>{
     case 'sim':go('sim');break;
     case 'askdelete':s.remove=id;render();break;
     case 'canceldelete':s.remove=null;render();break;
-    case 'delete':if(id===s.remove&&storeTxs(s.txs.filter(t=>t.key!==id)))go('portfolio');break;
+    case 'delete':{
+      if(id!==s.remove)break;
+      const removed=s.txs.find(t=>t.key===id);
+      if(!removed)break;
+      if(storeTxs(s.txs.filter(t=>t.key!==id))){
+        s.remove=null;
+        render();
+        toast('Операция удалена.','ok','Отменить',()=>{
+          if(!s.txs.some(t=>t.key===removed.key)&&storeTxs([...s.txs,removed])){
+            s.portfolioTab='history';render();
+          }
+        });
+      }
+      break;
+    }
   }
 });
 document.addEventListener('input',e=>{
   if(e.target.id==='search'){s.query=e.target.value;document.querySelector('#coin-list').innerHTML=view.coinRows(s);}
   if(e.target.id==='coin-search')s.coinSearch=e.target.value;
-  if(e.target.closest('#tx-form'))updateTxCalc();
+  if(e.target.closest('#tx-form')){updateTxCalc();clearFormError('tx-error');}
+  if(e.target.closest('#alert-form'))clearFormError('alert-error');
+  if(e.target.closest('#sim-form'))clearFormError('sim-error');
 });
 document.addEventListener('change',e=>{
   if(e.target.id==='sort'){s.sort=e.target.value;render();}
@@ -593,45 +669,45 @@ document.addEventListener('submit',e=>{
     const editKey=s.editTx;
     const existing=editKey?s.txs.find(t=>t.key===editKey):null;
     if(!coin&&existing&&existing.coin===v.get('coin'))coin={id:existing.coin,symbol:existing.symbol};
-    const qty=Number(v.get('qty')),rub=Number(v.get('rub')),day=v.get('day');
-    const feeRaw=v.get('fee'),fee=feeRaw===null||feeRaw===''?0:Number(feeRaw);
+    const qty=num(v.get('qty')),rub=num(v.get('rub')),day=v.get('day');
+    const feeRaw=v.get('fee'),fee=feeRaw===null||feeRaw===''?0:num(feeRaw);
     if(!coin||!finite(qty)||qty<=0||!finite(rub)||rub<=0||!/^\d{4}-\d{2}-\d{2}$/.test(day)||day>utcDay(Date.now())){
-      toast('Проверьте монету, количество, сумму и дату.');return;
+      setFormError('tx-error','Проверьте монету, количество, сумму и дату.');return;
     }
     if(!finite(fee)||fee<0){
-      toast('Комиссия должна быть нулём или положительным числом.');return;
+      setFormError('tx-error','Комиссия должна быть нулём или положительным числом.');return;
     }
     if(type==='sell'&&fee>rub+1e-9){
-      toast('Комиссия не может быть больше суммы продажи.');return;
+      setFormError('tx-error','Комиссия не может быть больше суммы продажи.');return;
     }
     const others=editKey?s.txs.filter(t=>t.key!==editKey):s.txs;
     if(type==='sell'){
       const held=availableAt(others,coin.id,day);
       if(qty>held+1e-9){
-        toast('На '+day+' доступно '+held.toLocaleString('ru-RU',{maximumFractionDigits:8})+' '+coin.symbol+'.');
+        setFormError('tx-error','На '+view.dateText(day)+' доступно '+held.toLocaleString('ru-RU',{maximumFractionDigits:8})+' '+coin.symbol+'.');
         return;
       }
     }
     const base={type,coin:coin.id,symbol:coin.symbol,qty,rub,fee,day,note:String(v.get('note')||'').trim(),legacy:false,rateDate:null,fxApprox:false};
     if(editKey){
-      if(!existing){toast('Операция не найдена.');s.editTx=null;render();return;}
+      if(!existing){setFormError('tx-error','Операция не найдена.');s.editTx=null;return;}
       const next=s.txs.map(t=>t.key===editKey?{...t,...base,key:existing.key,seq:existing.seq}:t);
-      if(storeTxs(next)){s.editTx=null;toast('Операция изменена.');go('portfolio');}
+      if(storeTxs(next)){s.editTx=null;s.txDraft=null;s.portfolioTab='history';try{localStorage.setItem('portfolio-tab','history');}catch{}toast('Операция изменена.','ok');go('portfolio');}
     }else{
       const tx={key:makeKey(),...base,seq:nextSeq(s.txs)};
-      if(storeTxs([...s.txs,tx]))go('portfolio');
+      if(storeTxs([...s.txs,tx])){s.txDraft=null;s.portfolioTab='history';try{localStorage.setItem('portfolio-tab','history');}catch{}toast('Операция добавлена.','ok');go('portfolio');}
     }
   }
   if(f.id==='alert-form'){
     const coin=(s.coinUniverse||s.coins).find(c=>c.id===v.get('coin'));
-    const target=Number(v.get('target'));
+    const target=num(v.get('target'));
     const currency=v.get('currency')==='usd'?'usd':'rub';
     if(!coin||!finite(target)||target<=0){
-      toast('Проверьте монету и целевую цену.');return;
+      setFormError('alert-error','Проверьте монету и целевую цену.');return;
     }
     let targetUsd,targetRub;
     if(currency==='rub'){
-      if(!s.fx||!finite(s.fx.rate)||s.fx.rate<=0){toast('Курс USD/RUB недоступен — укажите цель в долларах.');return;}
+      if(!s.fx||!finite(s.fx.rate)||s.fx.rate<=0){setFormError('alert-error','Курс USD/RUB недоступен — укажите цель в долларах.');return;}
       targetRub=target;targetUsd=target/s.fx.rate;
     }else{
       targetUsd=target;
@@ -644,13 +720,13 @@ document.addEventListener('submit',e=>{
       targetUsd,targetRub,currency,enabled:true,triggeredAt:null,createdAt:Date.now(),targetLabel:label};
     s.alerts=[...s.alerts,alert];
     saveAlerts();render();
-    toast('Уведомление сохранено.'+(s.notifEnabled?'':' Разрешите уведомления.'));
+    toast('Уведомление сохранено.'+(s.notifEnabled?'':' Разрешите уведомления.'),'ok');
   }
   if(f.id==='sim-form'){
     const output=document.querySelector('#simulation');
     try{output.innerHTML=view.simResult(simulate(s.results.get(s.selected).series,s.selected==='bitcoin',s.models.factors,
-      v.get('start'),Number(v.get('weekly')),Number(v.get('fear')),Number(v.get('greed'))));}
-    catch(err){output.textContent=err.message;}
+      v.get('start'),num(v.get('weekly')),num(v.get('fear')),num(v.get('greed'))));}
+    catch(err){setFormError('sim-error',err.message);}
   }
 });
 document.addEventListener('visibilitychange',()=>{
@@ -672,7 +748,7 @@ async function start(){
   s.notifEnabled=notificationsEnabled();
   syncExtras();
   rebuildUniverse();
-  try{const saved=localStorage.getItem('portfolio-currency');s.currency=saved==='usd'?'usd':'rub';}catch{}
+  try{const saved=localStorage.getItem('portfolio-currency');s.currency=saved==='usd'?'usd':'rub';const tab=localStorage.getItem('portfolio-tab');if(['overview','positions','history','alerts'].includes(tab))s.portfolioTab=tab;}catch{}
   try{
     s.models=await loadModels();
     render();
