@@ -25,7 +25,7 @@ jobs:
           SDKMANAGER=$(command -v sdkmanager || find "$SDKROOT/cmdline-tools" -path '*/bin/sdkmanager' | sort -V | tail -1)
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" 'platforms;android-37' 'build-tools;36.0.0'
+          "$SDKMANAGER" --channel=3 'platforms;android-37.0' 'build-tools;36.0.0'
           chmod +x gradlew
           ./gradlew :app:assembleDebug
 
