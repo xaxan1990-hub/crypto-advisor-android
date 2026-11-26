@@ -29,6 +29,14 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleDebug
 
+      - name: Освободить место для эмулятора
+        run: |
+          df -h
+          rm -rf "$HOME/.gradle/caches" "$ANDROID_HOME/ndk" "$ANDROID_HOME/ndk-bundle" \
+            "$ANDROID_HOME/sources" "$ANDROID_HOME/docs" "$ANDROID_HOME/extras" \
+            "$ANDROID_HOME/platforms/android-37.0"
+          df -h
+
       - name: Подготовить виртуальное устройство Android 15
         shell: bash
         run: |
