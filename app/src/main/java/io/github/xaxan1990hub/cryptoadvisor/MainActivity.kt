@@ -157,6 +157,11 @@ class MainActivity : ComponentActivity() {
             fun settings() {
                 runOnUiThread { openNotificationSettings() }
             }
+
+            @JavascriptInterface
+            fun checkNow() {
+                runOnUiThread { AlertStore.checkNow(this@MainActivity) }
+            }
         }, "androidAlerts")
         runCatching { AlertStore.schedule(this) }
         web.webViewClient = object : WebViewClient() {

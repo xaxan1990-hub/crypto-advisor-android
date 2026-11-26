@@ -22,7 +22,7 @@ const base = {
   fxError: '',
   currency: 'rub',
   today: '2026-11-27',
-  version: '0.7.0',
+  version: '0.7.1',
   releasesUrl: 'https://github.com/xaxan1990-hub/crypto-advisor-android/releases',
   release: null,
   releaseError: '',
@@ -99,7 +99,7 @@ test('portfolio exposes export and import controls', () => {
 
 test('research page shows installed version and GitHub releases link', () => {
   const html = view.research({...base});
-  assert.match(html, /Установлено: 0\.7\.0/);
+  assert.match(html, /Установлено: 0\.7\.1/);
   assert.match(html, /Открыть GitHub Releases/);
   assert.match(html, /Обновить приложение/);
   assert.match(html, /Только проверить/);

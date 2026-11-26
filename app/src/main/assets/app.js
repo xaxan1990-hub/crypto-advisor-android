@@ -556,6 +556,11 @@ document.addEventListener('click',event=>{
     case 'importcancel':s.importTxs=null;s.importSkipped=0;s.importCurrency=null;render();break;
     case 'notifperm':try{window.androidAlerts?.requestPermission?.();}catch{}break;
     case 'notifsettings':try{window.androidAlerts?.settings?.();}catch{}break;
+    case 'alertnow':
+      if(!s.notifEnabled){toast('Сначала разрешите уведомления.');break;}
+      try{window.androidAlerts?.checkNow?.();toast('Проверка запущена. Если цель достигнута, придёт уведомление.');}catch{toast('Проверка недоступна.');}
+      break;
+    case 'realert':s.alerts=s.alerts.map(a=>a.key===id?{...a,enabled:true,triggeredAt:null}:a);saveAlerts();render();toast('Уведомление снова включено.');break;
     case 'askdelalert':s.removeAlert=id;render();break;
     case 'cancelalert':s.removeAlert=null;render();break;
     case 'delalert':

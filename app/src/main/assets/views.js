@@ -150,7 +150,7 @@ export function alertsPanel(s){
     const status=!a.enabled?(a.triggeredAt?'сработало':'выключено'):'ждёт';
     return panel(`<div class="between"><b>${esc(a.symbol)} ${a.above?'≥':'≤'} ${target(a)}</b><small class="${a.triggeredAt?'up':''}">${status}</small></div>
       <small>${a.currency==='rub'?'Цель в рублях':'Цель в долларах'}${a.triggeredAt?' · '+when(a.triggeredAt):''}</small>
-      <div class="toolrow">${s.removeAlert===a.key?act('delalert','Подтвердить удаление',a.key)+act('cancelalert','Отмена'):act('askdelalert','Удалить',a.key)}</div>`);
+      <div class="toolrow">${!a.enabled&&a.triggeredAt?act('realert','Включить снова',a.key):''}${s.removeAlert===a.key?act('delalert','Подтвердить удаление',a.key)+act('cancelalert','Отмена'):act('askdelalert','Удалить',a.key)}</div>`);
   }).join('');
   const form=coins.length?`<details class="panel"><summary>Добавить уведомление</summary>
     <form id="alert-form">
@@ -163,6 +163,7 @@ export function alertsPanel(s){
   return `<section><div class="between wrap"><h2>Уведомления о цене</h2><small>${enabled?'разрешены':'не разрешены'}</small></div>
     ${!enabled?`${note('Android не показывает уведомления без разрешения.')}<div class="toolrow">${act('notifperm','Разрешить уведомления','','cta')}${act('notifsettings','Настройки')}</div>`:''}
     ${rows||note('Уведомлений пока нет.')}
+    ${alerts.length?`<div class="toolrow">${act('alertnow','Проверить сейчас')}</div>`:''}
     ${form}
     ${note('Проверка выполняется примерно раз в 15–30 минут при наличии интернета. Это не биржевой стоп-лосс: цена может пройти цель между проверками.')}
   </section>`;
