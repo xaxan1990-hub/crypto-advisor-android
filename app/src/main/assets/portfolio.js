@@ -300,9 +300,7 @@ export function buildPortfolioSeries(txs, coins, histories, rate, range = 365, t
     const series = [];
     const priceById = new Map(coins.map(c => [c.id, c]));
 
-    const firstDay = list[0]?.day || start;
     for (const day of ordered) {
-        if (day < firstDay) continue;
         while (index < list.length && list[index].day <= day) {
             const tx = list[index++];
             const qty = Number(tx.qty), rub = txRub(tx, rate), fee = txFee(tx);
