@@ -1,5 +1,6 @@
 // UI smoke test on the APK running inside an Android emulator. The market fixture is isolated to this page.
 import {setTimeout as delay} from 'node:timers/promises';
+import {writeFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 
 let page;
@@ -54,6 +55,10 @@ function marketFixture(){
     return new Response(JSON.stringify({at:now,data:payload[kind]}),{headers:{'Content-Type':'application/json'}});
   };
 }
+async function shot(name){
+  const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+  writeFileSync('/tmp/advisor-'+name+'.png',Buffer.from(r.data,'base64'));
+}
 const click=async selector=>{const q=JSON.stringify(selector);await until('!!document.querySelector('+q+')');await exec('document.querySelector('+q+').click()');};
 try{
   await send('Runtime.enable');
@@ -61,9 +66,11 @@ try{
   await send('Page.addScriptToEvaluateOnNewDocument',{source:'('+marketFixture.toString()+')()'});
   await send('Page.reload',{ignoreCache:true});
   await until("document.querySelectorAll('.coin').length===2");
+  await shot('01-market');
   await click('[data-act="coin"][data-id="bitcoin"]');
   await until("document.body.innerText.includes('Факторы и модель') && document.querySelectorAll('details').length===3");
   assert.ok(await exec("document.querySelectorAll('.chart rect').length")>60,'candlestick chart');
+  await shot('02-detail');
   await click('[data-act="sim"]');await click('#sim-form button');
   await until("document.querySelector('#simulation')?.innerText.includes('Всё в начале')");
   await exec('window.advisorBack()');
@@ -71,6 +78,7 @@ try{
   await until("!!document.querySelector('#tx-form')");
   await exec("document.querySelector('[name=qty]').value='2';document.querySelector('[name=rub]').value='200000';document.querySelector('#tx-form').requestSubmit()");
   await until("document.body.innerText.includes('История операций') && !!document.querySelector('[data-act=askdelete]')");
+  await shot('03-history');
   await click('[data-act="askedit"]');
   await until("document.body.innerText.includes('Редактировать операцию')");
   await exec("document.querySelector('[name=fee]').value='500';document.querySelector('#tx-form').requestSubmit()");
@@ -82,6 +90,7 @@ try{
   await send('Page.reload',{ignoreCache:true});
   await until("document.querySelectorAll('.coin').length===2");
   await click('[data-tab="portfolio"]');await click('[data-act=ptab][data-id="history"]');await until("!!document.querySelector('[data-act=askdelete]')");
+  await shot('04-history-reload');
   await click('[data-tab="research"]');await until("document.body.innerText.includes('BTC · 7 дн.')");
   await click('[data-tab="news"]');await until("document.body.innerText.includes('Bitcoin ETF approval')");
   await click('[data-tab="portfolio"]');
@@ -93,12 +102,19 @@ try{
   await until("document.querySelector('#tx-coin').value==='pepe'");
   await exec("document.querySelector('[name=qty]').value='1000000';document.querySelector('[name=rub]').value='800';document.querySelector('#tx-form').requestSubmit()");
   await until("document.body.innerText.includes('PEPE') && document.body.innerText.includes('История операций')");
+  await shot('05-history-pepe');
   await click('[data-act=ptab][data-id="overview"]');
   await until("document.body.innerText.includes('Чистые вложения')");
+  await shot('06-overview');
   await click('[data-act=ptab][data-id="alerts"]');
   await until("!!document.querySelector('#alert-form')");
   await exec("document.querySelector('#alert-form [name=target]').value='100000';document.querySelector('#alert-form').requestSubmit()");
   await until("document.body.innerText.includes('BTC ≥')");
+  await shot('07-alerts');
+  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'}]});
+  await exec('window.scrollTo(0,0)');
+  await shot('08-light');
+  await send('Emulation.setEmulatedMedia',{features:[]});
   await click('[data-tab="market"]');
   await exec("const input=document.querySelector('#search');input.value='eth';input.dispatchEvent(new Event('input',{bubbles:true}))");
   assert.equal(await exec("document.querySelectorAll('.coin').length"),1);

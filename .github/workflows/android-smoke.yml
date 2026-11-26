@@ -85,6 +85,14 @@ jobs:
           adb forward tcp:9222 localabstract:webview_devtools_remote_$pid
           node tools/smoke.mjs
 
+      - name: Скриншоты экранов
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: screenshots
+          path: /tmp/advisor-*.png
+          if-no-files-found: ignore
+
       - name: Журнал устройства при ошибке
         if: failure()
         run: |

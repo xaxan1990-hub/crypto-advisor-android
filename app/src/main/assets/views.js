@@ -158,8 +158,9 @@ export function portfolioChart(s){
   };
   const last=series[series.length-1];
   const rub=v=>finite(v)?fmt(v,0)+' ₽':'—';
+  const axis=v=>{const a=Math.abs(v);return a>=1e6?fmt(v/1e6,1)+' млн':a>=1e3?fmt(v/1e3,0)+' тыс.':fmt(v,0);};
   const lastTop=Math.max(4,Math.min(96,y(last.value??min)));
-  return `<div class="chart-wrap"><div class="chart-y" aria-hidden="true"><span>${rub(max)}</span><span>${rub((max+min)/2)}</span><span>${rub(min)}</span></div>
+  return `<div class="chart-wrap"><div class="chart-y" aria-hidden="true"><span>${axis(max)}</span><span>${axis((max+min)/2)}</span><span>${axis(min)}</span></div>
     <div class="chart-plot"><svg class="chart" role="img" aria-label="Стоимость портфеля с ${dateText(series[0].day)} по ${dateText(last.day)}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="var(--line)" fill="none"/><path d="${line('invested')}" fill="none" stroke="var(--warn)" stroke-width="1.4" vector-effect="non-scaling-stroke"/><path d="${line('value')}" fill="none" stroke="var(--up)" stroke-width="2" vector-effect="non-scaling-stroke"/><line class="last-line" x1="0" x2="320" y1="${y(last.value??min).toFixed(2)}" y2="${y(last.value??min).toFixed(2)}" stroke-width="1"/></svg><span class="chart-last" style="top:${lastTop}%">${rub(last.value)}</span></div></div>
     <div class="between sub"><span>${dateText(series[0].day)}</span><span>${dateText(last.day)}</span></div>
     <div class="legend"><span><i class="dot" style="background:var(--up)"></i>Стоимость</span><span><i class="dot" style="background:var(--warn)"></i>Чистые вложения</span></div>
