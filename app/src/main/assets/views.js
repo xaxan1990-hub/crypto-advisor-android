@@ -16,11 +16,16 @@ const opts=(list,current)=>list.map(([id,label])=>`<option value="${esc(id)}" ${
 const note=s=>`<p class="sub">${esc(s)}</p>`;
 export function chart(rows){
   if(rows.length<2)return note('Недостаточно точек для графика.');
-  let data=rows;
-  if(rows.length>110){
-    const size=Math.ceil(rows.length/110),grouped=[];
-    for(let i=0;i<rows.length;i+=size){
-      const group=rows.slice(i,i+size),first=group[0],last=group.at(-1);
+  let data=rows.map(r=>({
+    ...r,
+    open:finite(r.open)?r.open:r.close,
+    high:finite(r.high)&&r.high>0?r.high:r.close,
+    low:finite(r.low)&&r.low>0?r.low:r.close,
+  }));
+  if(data.length>110){
+    const size=Math.ceil(data.length/110),grouped=[];
+    for(let i=0;i<data.length;i+=size){
+      const group=data.slice(i,i+size),first=group[0],last=group.at(-1);
       const high=Math.max(...group.map(r=>finite(r.high)&&r.high>0?r.high:r.close));
       const low=Math.min(...group.map(r=>finite(r.low)&&r.low>0?r.low:r.close));
       grouped.push({day:last.day,open:first.open??first.close,high,low,close:last.close,ma50:last.ma50,ma200:last.ma200});
@@ -201,7 +206,7 @@ export function buyForm(s){
       <label>Дата операции<input name="day" type="date" value="${edit?esc(edit.day):s.today}" max="${s.today}" required></label>
       <label>Заметка<input name="note" maxlength="160" value="${edit?esc(edit.note):''}"></label>
       <div id="tx-calc" class="sub"></div>
-      <div class="toolrow"><button class="cta">${edit?'Сохранить изменения':'Сохранить операцию'}</button>${edit?act('canceledit','Отмена'):''}</div>
+      <div class="toolrow"><button type="submit" class="cta">${edit?'Сохранить изменения':'Сохранить операцию'}</button>${edit?act('canceledit','Отмена'):''}</div>
     </form>
     ${type==='sell'?note('Доступно для продажи: '+fmt(held,10)+' '+c.symbol+'. Продать можно не больше остатка на выбранную дату.'):''}
     ${note('Сумма в рублях — фактически потраченные или полученные деньги без комиссии. Комиссия увеличивает стоимость покупки или уменьшает выручку от продажи. Цена за монету считается автоматически.')}
@@ -219,7 +224,7 @@ export function simulator(s){
     <form id="sim-form" class="panel"><div class="grid2"><label>Сумма в неделю, USD<input name="weekly" type="number" step="any" min="0.01" value="100" required></label>
     <label>Начало<input name="start" type="date" min="${min}" max="${end}" value="${initial}" required></label></div>
     <div class="grid2"><label>Страх, ≤<input name="fear" type="number" min="0" max="99" value="25" required></label><label>Жадность, ≥<input name="greed" type="number" min="1" max="100" value="75" required></label></div>
-    <button class="cta">Сравнить стратегии</button></form><div id="simulation"></div>${note('Покупки по понедельникам, без комиссий. Страх увеличивает взнос в 1,5 раза, жадность уменьшает вдвое. Для сигналов используются веса, обученные до года покупки. При нехватке данных взнос обычный.')}</section>`;
+    <button type="submit" class="cta">Сравнить стратегии</button></form><div id="simulation"></div>${note('Покупки по понедельникам, без комиссий. Страх увеличивает взнос в 1,5 раза, жадность уменьшает вдвое. Для сигналов используются веса, обученные до года покупки. При нехватке данных взнос обычный.')}</section>`;
 }
 export function simResult(rs){
   return rs.map(r=>panel(`<div class="between"><strong>${esc(r.title)}</strong><b class="mono ${color(r.ret)}">${pct(r.ret)}</b></div><small>Вложено ${money(r.invested)} · в конце ${money(r.value)}</small>`)).join('');
