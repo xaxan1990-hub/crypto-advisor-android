@@ -93,6 +93,7 @@ try{
   await until("document.querySelector('#tx-coin').value==='pepe'");
   await exec("document.querySelector('[name=qty]').value='1000000';document.querySelector('[name=rub]').value='800';document.querySelector('#tx-form').requestSubmit()");
   await until("document.body.innerText.includes('PEPE') && document.body.innerText.includes('Операции')");
+  await until("document.body.innerText.includes('Чистые вложения')");
   await click('[data-tab="market"]');
   await exec("const input=document.querySelector('#search');input.value='eth';input.dispatchEvent(new Event('input',{bubbles:true}))");
   assert.equal(await exec("document.querySelectorAll('.coin').length"),1);
