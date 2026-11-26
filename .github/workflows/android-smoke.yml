@@ -45,6 +45,7 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo no | "$AVDMANAGER" create avd --name advisor --package 'system-images;android-35;google_apis;x86_64' --device pixel_5 --path "$ANDROID_AVD_HOME/advisor.avd" --force
           test -s "$ANDROID_AVD_HOME/advisor.avd/config.ini"
+          printf 'disk.dataPartition.size=2048M\n' >> "$ANDROID_AVD_HOME/advisor.avd/config.ini"
           if [[ ! -s "$ANDROID_AVD_HOME/advisor.ini" ]]; then
             printf '%s\n' 'avd.ini.encoding=UTF-8' "path=$ANDROID_AVD_HOME/advisor.avd" 'target=android-35' > "$ANDROID_AVD_HOME/advisor.ini"
           fi
