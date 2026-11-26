@@ -1,34 +1,41 @@
-name: Проверка APK на Android
+name: Проверка debug APK на Android
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Тег предварительного выпуска с APK
-        required: true
-        default: v0.1.0
 permissions:
   contents: read
 jobs:
   smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 22
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: npm test
-      - name: Скачать проверяемый APK
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
-        run: gh release download "$TAG" --pattern '*.apk' --dir "$RUNNER_TEMP/apk"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Собрать debug APK
+        run: |
+          SDKMANAGER=$(command -v sdkmanager || find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' | sort -V | tail -1)
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-37' 'build-tools;36.0.0'
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug
+
       - name: Подготовить виртуальное устройство Android 15
         shell: bash
         run: |
           set -eo pipefail
           export PATH="$ANDROID_HOME/platform-tools:$PATH"
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' | sort -V | tail -1)
+          SDKMANAGER=$(command -v sdkmanager || find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' | sort -V | tail -1)
           AVDMANAGER="$(dirname "$SDKMANAGER")/avdmanager"
           "$SDKMANAGER" 'platform-tools' 'emulator' 'system-images;android-35;google_apis;x86_64' >/dev/null
           sudo chmod a+rw /dev/kvm
@@ -43,6 +50,7 @@ jobs:
             printf '%s\n' 'avd.ini.encoding=UTF-8' "path=$ANDROID_AVD_HOME/advisor.avd" 'target=android-35' > "$ANDROID_AVD_HOME/advisor.ini"
           fi
           "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fx advisor
+
       - name: Загрузить Android и установить APK
         shell: bash
         run: |
@@ -58,7 +66,8 @@ jobs:
           timeout 10 adb wait-for-device
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -q 1; do sleep 3; done'
           adb shell input keyevent 82
-          adb install "$RUNNER_TEMP"/apk/*.apk
+          adb install app/build/outputs/apk/debug/app-debug.apk
+
       - name: Проверить экраны советника
         shell: bash
         run: |
@@ -67,6 +76,7 @@ jobs:
           pid=$(adb shell pidof io.github.xaxan1990hub.cryptoadvisor | tr -d '\r')
           adb forward tcp:9222 localabstract:webview_devtools_remote_$pid
           node tools/smoke.mjs
+
       - name: Журнал устройства при ошибке
         if: failure()
         run: |

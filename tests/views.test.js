@@ -1,0 +1,80 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import * as view from '../app/src/main/assets/views.js';
+
+const models = Object.fromEntries(['config', 'factors', 'report', 'short', 'medium', 'long'].map(name => [
+  name,
+  JSON.parse(readFileSync(new URL('../app/src/main/assets/models/' + name + '.json', import.meta.url))),
+]));
+
+const coins = [
+  {id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin', rank: 1, price: 100000, p24: 1, p7: 2, p30: 3, cap: 1e12, at: Date.now()},
+  {id: 'ethereum', symbol: 'ETH', name: 'Ethereum', rank: 2, price: 3000, p24: 1, p7: 2, p30: 3, cap: 1e11, at: Date.now()},
+];
+
+const base = {
+  coins,
+  results: new Map(),
+  fear: new Map(),
+  txs: [],
+  fx: {rate: 80, date: '2026-11-27', source: 'ЦБ РФ', stale: false},
+  fxError: '',
+  currency: 'rub',
+  today: '2026-11-27',
+  version: '0.2.0',
+  releasesUrl: 'https://github.com/xaxan1990-hub/crypto-advisor-android/releases',
+  release: null,
+  releaseError: '',
+  updateAvailable: false,
+  remove: null,
+  buyCoin: null,
+  txType: 'buy',
+  models,
+  journal: [],
+  selected: 'ethereum',
+  detailError: '',
+  range: 365,
+  query: '',
+  sort: 'rank',
+  marketTime: Date.now(),
+  stale: false,
+  marketError: '',
+  bulk: false,
+  bulkNote: '',
+};
+
+test('portfolio renders RUB, buy/sell rows and P&L', () => {
+  const s = {
+    ...base,
+    txs: [
+      {key: 'a', type: 'buy', coin: 'ethereum', symbol: 'ETH', qty: 1, rub: 200000, day: '2026-11-20'},
+      {key: 'b', type: 'sell', coin: 'ethereum', symbol: 'ETH', qty: 0.5, rub: 120000, day: '2026-11-21'},
+    ],
+  };
+  const html = view.portfolio(s);
+  assert.match(html, /Мой портфель/);
+  assert.match(html, /Операции/);
+  assert.match(html, /Продажа/);
+  assert.match(html, /1 \$ = 80 ₽/);
+  assert.match(html, /Реализовано/);
+});
+
+test('transaction form has RUB amount, crypto amount and buy/sell switch', () => {
+  const buy = view.buyForm({...base});
+  assert.match(buy, /id="tx-form"/);
+  assert.match(buy, /name="rub"/);
+  assert.match(buy, /name="qty"/);
+  assert.match(buy, /name="type" value="buy"/);
+  const sell = view.buyForm({...base, txType: 'sell'});
+  assert.match(sell, /name="type" value="sell"/);
+  assert.match(sell, /Сколько рублей получили/);
+  assert.match(sell, /Сейчас доступно:/);
+});
+
+test('research page shows installed version and GitHub releases link', () => {
+  const html = view.research({...base});
+  assert.match(html, /Установлено: 0\.2\.0/);
+  assert.match(html, /Открыть GitHub Releases/);
+  assert.match(html, /Проверить обновления/);
+});

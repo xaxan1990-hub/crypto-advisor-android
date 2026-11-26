@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         })
-        web.loadUrl("https://$appHost/index.html")
+        web.loadUrl("https://$appHost/index.html?v=${Uri.encode(BuildConfig.VERSION_NAME)}")
     }
 
     private fun response(type: String, body: String, status: Int = 200) =

@@ -28,6 +28,9 @@ internal class MarketGateway(context: Context) {
             "candles" -> Feed("https://data-api.binance.vision/api/v3/klines?symbol=${id}USDT&interval=1d&limit=1000", 60)
             "chart" -> Feed("$gecko/coins/$id/market_chart?vs_currency=usd&days=365&interval=daily", 180, "object")
             "funding" -> Feed("https://fapi.binance.com/fapi/v1/fundingRate?symbol=${id}USDT&limit=18", 240)
+            "fx" -> Feed("https://www.cbr-xml-daily.ru/daily_json.js", 720, "object")
+            "fx_usdt" -> Feed("$gecko/simple/price?ids=tether&vs_currencies=rub", 10, "object")
+            "release" -> Feed("https://api.github.com/repos/xaxan1990-hub/crypto-advisor-android/releases?per_page=1", 60, "array")
             "news" -> Feed(feeds.getString(id), 30, "xml")
             else -> throw IllegalArgumentException("Неизвестный источник")
         }
@@ -49,7 +52,10 @@ internal class MarketGateway(context: Context) {
                 val body = try {
                     connection.connectTimeout = 8000
                     connection.readTimeout = 12000
-                    connection.setRequestProperty("User-Agent", "CryptoAdvisorAndroid/0.1")
+                    connection.setRequestProperty("User-Agent", "CryptoAdvisorAndroid/0.2")
+                    if (source.url.startsWith("https://api.github.com/")) {
+                        connection.setRequestProperty("Accept", "application/vnd.github+json")
+                    }
                     if (connection.responseCode != 200) throw IOException("HTTP ${connection.responseCode}")
                     connection.inputStream.bufferedReader().use { it.readText() }
                 } finally { connection.disconnect() }

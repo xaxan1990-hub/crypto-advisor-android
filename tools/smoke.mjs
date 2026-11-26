@@ -45,6 +45,9 @@ function marketFixture(){
       id,symbol,name,current_price:c,market_cap:1e9,price_change_percentage_24h:3,
       price_change_percentage_7d_in_currency:6,price_change_percentage_30d_in_currency:12,last_updated:new Date(now).toISOString()}));
     const payload={market,candles,funding:[],fear:{data:[0,1,2].map(i=>({timestamp:(last/dayMs-i)*86400,value:'24'}))},
+      fx:{Date:'2026-11-27T11:30:00+03:00',Valute:{USD:{Nominal:1,Value:80}}},
+      fx_usdt:{tether:{rub:80}},
+      release:{tag_name:'v0.2.0',html_url:'https://github.com/xaxan1990-hub/crypto-advisor-android/releases/tag/v0.2.0'},
       news:'<rss><channel><item><title>Bitcoin ETF approval</title><link>https://example.org/test</link></item></channel></rss>'};
     return new Response(JSON.stringify({at:now,data:payload[kind]}),{headers:{'Content-Type':'application/json'}});
   };
@@ -62,8 +65,13 @@ try{
   await until("document.querySelector('#simulation')?.innerText.includes('Всё в начале')");
   await exec('window.advisorBack()');
   await click('[data-act="add"]');
-  await exec("document.querySelector('[name=qty]').value='2';document.querySelector('#buy-form').requestSubmit()");
-  await until("document.body.innerText.includes('Покупки') && !!document.querySelector('[data-act=askdelete]')");
+  await until("!!document.querySelector('#tx-form')");
+  await exec("document.querySelector('[name=qty]').value='2';document.querySelector('[name=rub]').value='200000';document.querySelector('#tx-form').requestSubmit()");
+  await until("document.body.innerText.includes('Операции') && !!document.querySelector('[data-act=askdelete]')");
+  await click('[data-act="add"]');
+  await click('[data-act="txtype"][data-id="sell"]');
+  await exec("document.querySelector('[name=qty]').value='0.5';document.querySelector('[name=rub]').value='60000';document.querySelector('#tx-form').requestSubmit()");
+  await until("document.body.innerText.includes('Продажа') && document.querySelectorAll('[data-act=askdelete]').length===2");
   await send('Page.reload',{ignoreCache:true});
   await until("document.querySelectorAll('.coin').length===2");
   await click('[data-tab="portfolio"]');await until("!!document.querySelector('[data-act=askdelete]')");
