@@ -70,6 +70,22 @@ function isNewer(a,b){
   for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]>y[i];
   return false;
 }
+function updateApp(){
+  if(window.androidUpdater&&typeof window.androidUpdater.checkAndUpdate==='function'){
+    toast('Проверяем обновление…');
+    window.androidUpdater.checkAndUpdate();
+  }else{
+    window.location.href=s.releasesUrl;
+  }
+}
+window.updateStatus=(text,kind)=>{
+  toast(text);
+  const el=document.querySelector('#update-status');
+  if(el){
+    el.textContent=text;
+    el.className='sub '+(kind==='error'?'error':kind==='ok'?'up':'');
+  }
+};
 async function checkUpdate(){
   try{
     const rel=await latestRelease(true);
@@ -226,6 +242,7 @@ document.addEventListener('click',event=>{
   const el=event.target.closest('button');if(!el||!s.models)return;
   const {tab,act,id}=el.dataset;
   if(tab){go(tab);return;}
+  if(el.id==='update'||act==='update-app'){updateApp();return;}
   if(el.id==='refresh'||act==='refresh'){
     if(s.tab==='news')loadNews(true);
     else if(s.tab==='research')readJournal();
@@ -243,6 +260,7 @@ document.addEventListener('click',event=>{
     case 'txtype':s.txType=id==='sell'?'sell':'buy';render();break;
     case 'currency':s.currency=id==='usd'?'usd':'rub';try{localStorage.setItem('portfolio-currency',s.currency);}catch{}render();break;
     case 'checkupdate':checkUpdate();break;
+    case 'update-app':updateApp();break;
     case 'sim':go('sim');break;
     case 'askdelete':s.remove=id;render();break;
     case 'canceldelete':s.remove=null;render();break;

@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -44,6 +45,13 @@ class MainActivity : ComponentActivity() {
             allowFileAccess = false
             allowContentAccess = false
         }
+        val updater = UpdateManager(this, web)
+        web.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun checkAndUpdate() {
+                updater.checkAndUpdate()
+            }
+        }, "androidUpdater")
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url

@@ -179,10 +179,12 @@ export function research(s){
   const updatePanel=`<section><h2>Версия и обновления</h2><div class="panel">
     <div class="between"><b>Установлено: ${esc(s.version||'dev')}</b><small>${release?'GitHub: '+esc(release.tag):''}</small></div>
     ${release?note('Последний релиз на GitHub: '+esc(release.tag)+'.'):''}
-    ${s.updateAvailable?note('Доступна новая версия '+esc(release.tag)+'. Скачайте APK со страницы релизов.'):''}
+    ${s.updateAvailable?note('Доступна новая версия '+esc(release.tag)+'.'):''}
     ${s.releaseError?note(s.releaseError):''}
-    <div class="toolrow">${act('checkupdate','Проверить обновления')}<a class="cta" href="${esc(s.releasesUrl)}">Открыть GitHub Releases</a></div>
-    ${note('Проверка через GitHub API работает для публичного репозитория. Для приватного откроется страница Releases — скачайте APK в браузере и установите поверх текущей версии.')}
+    <div class="toolrow">${act('update-app','Обновить приложение','','cta')}${act('checkupdate','Только проверить')}</div>
+    <div id="update-status" class="sub"></div>
+    <div class="toolrow"><a class="cta" href="${esc(s.releasesUrl)}">Открыть GitHub Releases</a></div>
+    ${note('«Обновить приложение» проверит GitHub, скачает APK и откроет системный установщик. Android покажет подтверждение установки — это обязательный системный шаг.')}
   </div></section>`;
   return header('Проверка советника','Исторические результаты и журнал этого устройства')+updatePanel+
     `<div class="hero"><small>Калибровка факторов</small><div class="big">${f.coins} монет</div>${note(f.period+' · '+fmt(f.samples,0)+' наблюдений')}</div>

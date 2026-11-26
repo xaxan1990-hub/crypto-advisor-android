@@ -9,8 +9,8 @@ android {
         applicationId = 'io.github.xaxan1990hub.cryptoadvisor'
         minSdk = 26
         targetSdk = 37
-        versionCode = 2
-        versionName = '0.2.0'
+        versionCode = 3
+        versionName = '0.2.1'
     }
     signingConfigs {
         release {
@@ -36,4 +36,5 @@ android {
 
 dependencies {
     implementation 'androidx.activity:activity:1.13.0'
+    implementation 'androidx.core:core:1.19.1'
 }

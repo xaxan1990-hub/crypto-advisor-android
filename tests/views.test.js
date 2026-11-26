@@ -76,5 +76,6 @@ test('research page shows installed version and GitHub releases link', () => {
   const html = view.research({...base});
   assert.match(html, /Установлено: 0\.2\.0/);
   assert.match(html, /Открыть GitHub Releases/);
-  assert.match(html, /Проверить обновления/);
+  assert.match(html, /Обновить приложение/);
+  assert.match(html, /Только проверить/);
 });
