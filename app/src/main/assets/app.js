@@ -444,7 +444,7 @@ async function marketRefresh(force=false){
   refreshJob=next;
   try{await next;}finally{
     refreshJob=null;
-    if(['market','detail','sim','portfolio'].includes(s.tab))render();
+    if(['market','detail','portfolio'].includes(s.tab))render();
     else document.querySelector('#refresh').disabled=!!newsJob;
   }
 }
