@@ -1,13 +1,14 @@
 import {utcDay,dayMs,context,score,simulate,finite} from './analysis.js';
 import {loadModels,request,marketRows,fearMap,fundingMap,history,newsFeeds,recordJournal,journalRows,fxRate,fxRateForDay,searchCoins,extraPrices,latestRelease} from './data.js';
 import {makeKey,legacyToTxs,availableAt,normalizeTxs,nextSeq,parseBackup,buildBackup,mergeTxs,buildPortfolioSeries} from './portfolio.js';
+import {normalizeAlerts} from './alerts.js';
 import * as view from './views.js';
 
 const main=document.querySelector('#main');
 const RELEASES='https://github.com/xaxan1990-hub/crypto-advisor-android/releases';
 const appVersion=new URLSearchParams(location.search).get('v')||'dev';
 const s={tab:'market',selected:null,models:null,coins:[],fear:new Map(),results:new Map(),query:'',sort:'rank',range:365,
-  txs:[],extras:[],coinUniverse:[],buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,coinSearch:'',searchResults:null,searchBusy:false,searchError:'',news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
+  txs:[],extras:[],coinUniverse:[],alerts:[],removeAlert:null,notifEnabled:true,buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,coinSearch:'',searchResults:null,searchBusy:false,searchError:'',news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
   fx:null,fxError:'',currency:'rub',portfolioRange:365,chartSeries:null,chartBusy:false,chartError:'',chartNote:'',chartKey:'',version:appVersion,releasesUrl:RELEASES,release:null,releaseError:'',updateAvailable:false};
 let refreshJob,newsJob,journalTicket=0,epoch=0,bulkTicket=0,loading=new Map(),histories=new Map(),fearJob,fxJob;
 let marketFromDisk=false,toastTimeout,portfolioLocked=false,legacyJob=null,extraJob=null,chartTicket=0;
@@ -49,6 +50,38 @@ function readExtras(){
     }));
   }catch{return [];}
 }
+function readAlerts(){
+  try{
+    const raw=window.androidAlerts?.load?.();
+    if(typeof raw==='string')return normalizeAlerts(JSON.parse(raw));
+  }catch{}
+  try{return normalizeAlerts(JSON.parse(localStorage.getItem('alerts-v1')||'[]'));}
+  catch{return [];}
+}
+function notificationsEnabled(){
+  try{
+    if(window.androidAlerts?.enabled)return !!window.androidAlerts.enabled();
+  }catch{}
+  return true;
+}
+function saveAlerts(){
+  try{localStorage.setItem('alerts-v1',JSON.stringify(s.alerts));}catch{}
+  try{window.androidAlerts?.save?.(JSON.stringify(s.alerts));}catch{}
+  s.notifEnabled=notificationsEnabled();
+}
+function refreshAlerts(){
+  const next=readAlerts();
+  s.notifEnabled=notificationsEnabled();
+  if(JSON.stringify(next)!==JSON.stringify(s.alerts)){
+    s.alerts=next;
+    if(s.tab==='portfolio')render();
+  }
+}
+window.alertPermission=granted=>{
+  s.notifEnabled=!!granted;
+  toast(granted?'Уведомления разрешены.':'Уведомления не разрешены.');
+  if(s.tab==='portfolio')render();
+};
 function saveExtras(){
   try{localStorage.setItem('portfolio-coins',JSON.stringify(s.extras));}catch{}
 }
@@ -338,7 +371,7 @@ function safeMarketRender(){
 function go(tab){
   if(tab!=='add')s.editTx=null;
   s.tab=tab;s.remove=null;window.scrollTo(0,0);render();
-  if(tab==='portfolio'){loadPortfolioChart();if(s.extras.length)refreshExtraPrices();}
+  if(tab==='portfolio'){refreshAlerts();loadPortfolioChart();if(s.extras.length)refreshExtraPrices();}
   if(tab==='news'&&!s.news)loadNews(false);
   if(tab==='research')readJournal();
 }
@@ -521,6 +554,15 @@ document.addEventListener('click',event=>{
       }
       break;
     case 'importcancel':s.importTxs=null;s.importSkipped=0;s.importCurrency=null;render();break;
+    case 'notifperm':try{window.androidAlerts?.requestPermission?.();}catch{}break;
+    case 'notifsettings':try{window.androidAlerts?.settings?.();}catch{}break;
+    case 'askdelalert':s.removeAlert=id;render();break;
+    case 'cancelalert':s.removeAlert=null;render();break;
+    case 'delalert':
+      if(id===s.removeAlert){
+        s.alerts=s.alerts.filter(a=>a.key!==id);s.removeAlert=null;saveAlerts();render();
+      }
+      break;
     case 'checkupdate':checkUpdate();break;
     case 'update-app':updateApp();break;
     case 'sim':go('sim');break;
@@ -575,12 +617,41 @@ document.addEventListener('submit',e=>{
       if(storeTxs([...s.txs,tx]))go('portfolio');
     }
   }
+  if(f.id==='alert-form'){
+    const coin=(s.coinUniverse||s.coins).find(c=>c.id===v.get('coin'));
+    const target=Number(v.get('target'));
+    const currency=v.get('currency')==='usd'?'usd':'rub';
+    if(!coin||!finite(target)||target<=0){
+      toast('Проверьте монету и целевую цену.');return;
+    }
+    let targetUsd,targetRub;
+    if(currency==='rub'){
+      if(!s.fx||!finite(s.fx.rate)||s.fx.rate<=0){toast('Курс USD/RUB недоступен — укажите цель в долларах.');return;}
+      targetRub=target;targetUsd=target/s.fx.rate;
+    }else{
+      targetUsd=target;
+      targetRub=s.fx&&finite(s.fx.rate)?target*s.fx.rate:null;
+    }
+    const label=currency==='rub'
+      ?target.toLocaleString('ru-RU',{maximumFractionDigits:0})+' ₽'
+      :'$'+target.toLocaleString('ru-RU',{maximumFractionDigits:2});
+    const alert={key:makeKey(),coin:coin.id,symbol:coin.symbol,above:v.get('dir')!=='below',
+      targetUsd,targetRub,currency,enabled:true,triggeredAt:null,createdAt:Date.now(),targetLabel:label};
+    s.alerts=[...s.alerts,alert];
+    saveAlerts();render();
+    toast('Уведомление сохранено.'+(s.notifEnabled?'':' Разрешите уведомления.'));
+  }
   if(f.id==='sim-form'){
     const output=document.querySelector('#simulation');
     try{output.innerHTML=view.simResult(simulate(s.results.get(s.selected).series,s.selected==='bitcoin',s.models.factors,
       v.get('start'),Number(v.get('weekly')),Number(v.get('fear')),Number(v.get('greed'))));}
     catch(err){output.textContent=err.message;}
   }
+});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)return;
+  s.notifEnabled=notificationsEnabled();
+  if(s.tab==='portfolio')refreshAlerts();
 });
 window.advisorBack=()=>{
   if(s.tab==='sim'){go('detail');return true;}
@@ -592,6 +663,8 @@ window.advisorBack=()=>{
 async function start(){
   s.txs=readPortfolio();
   s.extras=readExtras();
+  s.alerts=readAlerts();
+  s.notifEnabled=notificationsEnabled();
   syncExtras();
   rebuildUniverse();
   try{const saved=localStorage.getItem('portfolio-currency');s.currency=saved==='usd'?'usd':'rub';}catch{}

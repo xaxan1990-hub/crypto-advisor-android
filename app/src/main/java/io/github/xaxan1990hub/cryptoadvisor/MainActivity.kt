@@ -1,7 +1,9 @@
 package io.github.xaxan1990hub.cryptoadvisor
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,7 +11,9 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
@@ -17,6 +21,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -38,6 +44,14 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             portfolioStatus("Не удалось сохранить: ${e.message ?: "ошибка"}", "error")
         }
+    }
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        portfolioStatus(
+            if (granted) "Уведомления разрешены." else "Уведомления не разрешены. Их можно включить в настройках Android.",
+            if (granted) "ok" else "error",
+        )
+        web.evaluateJavascript("window.alertPermission && window.alertPermission($granted)", null)
     }
 
     private val importDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -114,6 +128,37 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }, "androidPortfolio")
+        web.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun load(): String = AlertStore.read(this@MainActivity)
+
+            @JavascriptInterface
+            fun save(json: String) {
+                runOnUiThread {
+                    try {
+                        AlertStore.write(this@MainActivity, json)
+                        AlertStore.schedule(this@MainActivity)
+                    } catch (e: Exception) {
+                        portfolioStatus("Не удалось сохранить уведомления: ${e.message ?: "ошибка"}", "error")
+                    }
+                }
+            }
+
+            @JavascriptInterface
+            fun enabled(): Boolean =
+                NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()
+
+            @JavascriptInterface
+            fun requestPermission() {
+                runOnUiThread { requestNotificationPermission() }
+            }
+
+            @JavascriptInterface
+            fun settings() {
+                runOnUiThread { openNotificationSettings() }
+            }
+        }, "androidAlerts")
+        runCatching { AlertStore.schedule(this) }
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
@@ -182,6 +227,33 @@ class MainActivity : ComponentActivity() {
                 out.write(buffer, 0, read)
             }
             return out.toByteArray()
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            portfolioStatus("Уведомления уже разрешены.", "ok")
+            web.evaluateJavascript("window.alertPermission && window.alertPermission(true)", null)
+        }
+    }
+
+    private fun openNotificationSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            )
+        } catch (_: Exception) {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                )
+            } catch (_: Exception) {
+            }
         }
     }
 

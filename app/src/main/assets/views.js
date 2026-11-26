@@ -141,6 +141,33 @@ export function portfolioChart(s){
     ${note('Оценка в текущем курсе ₽: линия стоимости показывает портфель по историческим ценам монет, линия вложений — сколько денег внесено минус выручка от продаж.')}`;
 }
 
+export function alertsPanel(s){
+  const coins=s.coinUniverse||s.coins;
+  const alerts=s.alerts||[];
+  const enabled=s.notifEnabled!==false;
+  const target=a=>a.currency==='rub'&&finite(a.targetRub)?fmt(a.targetRub,0)+' ₽':money(a.targetUsd);
+  const rows=alerts.map(a=>{
+    const status=!a.enabled?(a.triggeredAt?'сработало':'выключено'):'ждёт';
+    return panel(`<div class="between"><b>${esc(a.symbol)} ${a.above?'≥':'≤'} ${target(a)}</b><small class="${a.triggeredAt?'up':''}">${status}</small></div>
+      <small>${a.currency==='rub'?'Цель в рублях':'Цель в долларах'}${a.triggeredAt?' · '+when(a.triggeredAt):''}</small>
+      <div class="toolrow">${s.removeAlert===a.key?act('delalert','Подтвердить удаление',a.key)+act('cancelalert','Отмена'):act('askdelalert','Удалить',a.key)}</div>`);
+  }).join('');
+  const form=coins.length?`<details class="panel"><summary>Добавить уведомление</summary>
+    <form id="alert-form">
+      <label>Монета<select name="coin">${opts(coins.map(c=>[c.id,c.symbol+' · '+c.name]),coins[0].id)}</select></label>
+      <div class="grid2"><label>Условие<select name="dir"><option value="above">Цена выше</option><option value="below">Цена ниже</option></select></label>
+      <label>Валюта цели<select name="currency"><option value="rub">Рубли</option><option value="usd">Доллары</option></select></label></div>
+      <label>Целевая цена<input name="target" inputmode="decimal" type="number" step="any" min="0" required></label>
+      <button type="submit" class="cta">Сохранить уведомление</button>
+    </form></details>`:note('Сначала загрузите котировки на вкладке «Рынок».');
+  return `<section><div class="between wrap"><h2>Уведомления о цене</h2><small>${enabled?'разрешены':'не разрешены'}</small></div>
+    ${!enabled?`${note('Android не показывает уведомления без разрешения.')}<div class="toolrow">${act('notifperm','Разрешить уведомления','','cta')}${act('notifsettings','Настройки')}</div>`:''}
+    ${rows||note('Уведомлений пока нет.')}
+    ${form}
+    ${note('Проверка выполняется примерно раз в 15–30 минут при наличии интернета. Это не биржевой стоп-лосс: цена может пройти цель между проверками.')}
+  </section>`;
+}
+
 export function portfolio(s){
   const rate=s.fx?.rate,currency=s.currency==='usd'?'usd':'rub';
   const coins=s.coinUniverse||s.coins;
@@ -194,6 +221,7 @@ export function portfolio(s){
     <section><div class="between wrap"><h2>Динамика портфеля</h2><small>${s.chartBusy?'считаем…':'в рублях'}</small></div>
     <div class="chips">${[90,365,1000].map(n=>act('chartrange',n===90?'3 месяца':n===365?'Год':'Всё',n,s.portfolioRange===n?'active':'')).join('')}</div>
     ${portfolioChart(s)}</section>
+    ${alertsPanel(s)}
     <section><h2>Позиции</h2>${positions||note('Открытых позиций нет.')}</section>
     <section><h2>Операции</h2>${txRows||note('Пока нет операций.')}</section>`;
 }

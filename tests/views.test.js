@@ -151,3 +151,15 @@ test('portfolio value chart draws value and invested lines', () => {
   assert.match(html, /Стоимость ·/);
   assert.match(html, /chartrange/);
 });
+
+
+test('portfolio alerts panel shows targets and permission controls', () => {
+  const html = view.portfolio({...base, notifEnabled: false, alerts: [
+    {key: 'a', coin: 'bitcoin', symbol: 'BTC', above: true, targetUsd: 100000, targetRub: 8000000, currency: 'rub', enabled: true, targetLabel: '8 000 000 ₽'},
+  ]});
+  assert.match(html, /Уведомления о цене/);
+  assert.match(html, /BTC ≥/);
+  assert.match(html, /Разрешить уведомления/);
+  assert.match(html, /id="alert-form"/);
+  assert.match(html, /Удалить/);
+});
