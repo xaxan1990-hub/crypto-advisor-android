@@ -64,7 +64,7 @@ try{
   await click('[data-act="coin"][data-id="bitcoin"]');
   await until("document.body.innerText.includes('Факторы и модель') && document.querySelectorAll('details').length===3");
   assert.ok(await exec("document.querySelectorAll('.chart rect').length")>60,'candlestick chart');
-  await click('[data-act="sim"]');await click('#sim-form button');
+  await click('[data-act="sim"]');await exec("document.querySelector('#sim-form').requestSubmit()");
   await until("document.querySelector('#simulation')?.innerText.includes('Всё в начале')");
   await exec('window.advisorBack()');
   await click('[data-act="add"]');
