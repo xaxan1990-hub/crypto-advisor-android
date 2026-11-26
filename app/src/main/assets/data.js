@@ -116,6 +116,29 @@ export async function recordJournal(coin,cards,rows,canRecord){
     tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
   });
 }
+export async function fxRate(refresh=false){
+  try{
+    const pack=await request('fx','',refresh);
+    const usd=pack.data?.Valute?.USD;
+    const nominal=Number(usd?.Nominal||1);
+    const rate=Number(usd?.Value)/nominal;
+    if(!finite(rate)||rate<=0)throw Error('Некорректный курс ЦБ');
+    return {rate,date:String(pack.data?.Date||'').slice(0,10),source:'ЦБ РФ',stale:!!pack.stale};
+  }catch(e){
+    const pack=await request('fx_usdt','',refresh);
+    const rate=Number(pack.data?.tether?.rub);
+    if(!finite(rate)||rate<=0)throw e;
+    return {rate,date:'',source:'USDT/RUB',stale:!!pack.stale};
+  }
+}
+
+export async function latestRelease(refresh=false){
+  const pack=await request('release','',refresh);
+  const data=Array.isArray(pack.data)?pack.data[0]:pack.data;
+  if(!data?.tag_name)throw Error('Релизы не найдены');
+  return {tag:String(data.tag_name),url:String(data.html_url||''),stale:!!pack.stale};
+}
+
 export async function journalRows(){
   const db=await openJournal();
   return new Promise((resolve,reject)=>{

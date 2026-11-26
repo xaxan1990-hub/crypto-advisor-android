@@ -1,15 +1,89 @@
 import {utcDay,dayMs,context,score,simulate,finite} from './analysis.js';
-import {loadModels,request,marketRows,fearMap,fundingMap,history,newsFeeds,recordJournal,journalRows} from './data.js';
+import {loadModels,request,marketRows,fearMap,fundingMap,history,newsFeeds,recordJournal,journalRows,fxRate,latestRelease} from './data.js';
+import {makeKey,legacyToTxs,availableAt} from './portfolio.js';
 import * as view from './views.js';
 
 const main=document.querySelector('#main');
+const RELEASES='https://github.com/xaxan1990-hub/crypto-advisor-android/releases';
+const appVersion=new URLSearchParams(location.search).get('v')||'dev';
 const s={tab:'market',selected:null,models:null,coins:[],fear:new Map(),results:new Map(),query:'',sort:'rank',range:365,
-  buys:[],buyCoin:null,remove:null,news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now())};
-let refreshJob,newsJob,journalTicket=0,epoch=0,bulkTicket=0,loading=new Map(),histories=new Map(),fearJob;
+  txs:[],buyCoin:null,txType:'buy',remove:null,news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
+  fx:null,fxError:'',currency:'rub',version:appVersion,releasesUrl:RELEASES,release:null,releaseError:'',updateAvailable:false};
+let refreshJob,newsJob,journalTicket=0,epoch=0,bulkTicket=0,loading=new Map(),histories=new Map(),fearJob,fxJob;
 let marketFromDisk=false,toastTimeout,portfolioLocked=false;
+
 function toast(text){
   const el=document.querySelector('#message');el.textContent=text;
   clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>el.textContent='',4500);
+}
+function readPortfolio(){
+  try{
+    const v2=JSON.parse(localStorage.getItem('portfolio-v2')||'null');
+    if(Array.isArray(v2))return v2;
+  }catch{portfolioLocked=true;toast('Не удалось прочитать сохранённый портфель.');}
+  try{
+    const old=JSON.parse(localStorage.getItem('portfolio-v1')||'[]');
+    if(Array.isArray(old))return legacyToTxs(old,null);
+  }catch{portfolioLocked=true;toast('Не удалось прочитать старый портфель.');}
+  return [];
+}
+function storeTxs(next){
+  if(portfolioLocked){toast('Исходные записи портфеля не удалось прочитать.');return false;}
+  try{
+    localStorage.setItem('portfolio-v2',JSON.stringify(next));
+    s.txs=next;
+    return true;
+  }catch{toast('Хранилище заполнено. Изменения не сохранены.');return false;}
+}
+function upgradeLegacy(){
+  if(!s.fx)return;
+  let changed=false;
+  const next=s.txs.map(tx=>{
+    if(tx.rub==null&&finite(tx.priceUsd)&&finite(tx.qty)&&s.fx.rate>0){
+      changed=true;
+      return {...tx,rub:Number(tx.qty)*Number(tx.priceUsd)*s.fx.rate,legacy:true};
+    }
+    return tx;
+  });
+  if(changed){
+    s.txs=next;
+    if(!portfolioLocked){
+      try{localStorage.setItem('portfolio-v2',JSON.stringify(next));}catch{}
+      toast('Старый портфель пересчитан в рубли по текущему курсу.');
+    }
+  }
+}
+async function loadFx(force=false){
+  if(fxJob)return fxJob;
+  fxJob=(async()=>{
+    try{s.fx=await fxRate(force);s.fxError='';}
+    catch{s.fxError='Курс USD/RUB недоступен — стоимость в рублях неполная.';}
+    finally{fxJob=null;}
+  })();
+  return fxJob;
+}
+function versionParts(v){
+  return String(v||'').replace(/^v/,'').split(/[.+-]/).slice(0,3).map(x=>parseInt(x,10)||0);
+}
+function isNewer(a,b){
+  const x=versionParts(a),y=versionParts(b);
+  for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]>y[i];
+  return false;
+}
+async function checkUpdate(){
+  try{
+    const rel=await latestRelease(true);
+    s.release=rel;
+    s.releaseError='';
+    s.updateAvailable=appVersion!=='dev'&&isNewer(rel.tag,appVersion);
+    toast(s.updateAvailable?'Доступна версия '+rel.tag:'Установлена последняя версия.');
+  }catch{
+    s.release=null;
+    s.updateAvailable=false;
+    s.releaseError='GitHub API недоступен. Для приватного репозитория проверка версий не работает — откройте Releases вручную.';
+    toast('Не удалось проверить обновления через GitHub API.');
+  }
+  if(s.tab==='research')render();
 }
 function render(){
   if(!s.models)return;
@@ -18,6 +92,24 @@ function render(){
   document.querySelectorAll('nav button').forEach(b=>{if(b.dataset.tab===tab)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   main.innerHTML=({market:view.market,detail:view.detail,news:view.news,portfolio:view.portfolio,add:view.buyForm,sim:view.simulator,research:view.research})[s.tab](s);
   document.querySelector('#refresh').disabled=!!refreshJob||!!newsJob;
+  if(s.tab==='add')updateTxCalc();
+}
+function updateTxCalc(){
+  const f=document.querySelector('#tx-form');
+  const out=document.querySelector('#tx-calc');
+  if(!f||!out)return;
+  const coin=s.coins.find(c=>c.id===f.elements.coin?.value);
+  const qty=Number(f.elements.qty?.value),rub=Number(f.elements.rub?.value);
+  const type=f.elements.type?.value==='sell'?'sell':'buy';
+  const price=finite(qty)&&qty>0&&finite(rub)&&rub>0?rub/qty:null;
+  const usd=price!==null&&s.fx?price/s.fx.rate:null;
+  const day=f.elements.day?.value||s.today;
+  const held=coin?availableAt(s.txs,coin.id,day):0;
+  const parts=[];
+  parts.push(price===null?'Укажите количество и сумму в рублях':'Цена за 1: '+price.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽');
+  if(usd!==null)parts.push('≈ $'+usd.toLocaleString('ru-RU',{maximumFractionDigits:2}));
+  if(type==='sell'&&coin)parts.push('Доступно на '+day+': '+held.toLocaleString('ru-RU',{maximumFractionDigits:8})+' '+coin.symbol);
+  out.textContent=parts.join(' · ');
 }
 function safeMarketRender(){
   // Keep keyboard focus and cursor while updated scores arrive.
@@ -81,6 +173,7 @@ async function marketRefresh(force=false){
   if(refreshJob)return refreshJob;
   const next=(async()=>{
     try{
+      if(force){await loadFx(true);upgradeLegacy();}
       const pack=await request('market','',force),coins=marketRows(pack.data,s.models.config);
       if(!coins.length)throw Error('Пустой рейтинг');
       const wanted=s.selected;
@@ -128,11 +221,6 @@ async function bulk(){
   await Promise.all([worker(),worker()]);
   if(ticket===bulkTicket){s.bulk=false;s.bulkNote=failed?'Без доступной истории: '+failed+'.':'Расчёт завершён.';safeMarketRender();}
 }
-function storeBuys(next){
-  if(portfolioLocked){toast('Исходные записи портфеля не удалось прочитать.');return false;}
-  try{localStorage.setItem('portfolio-v1',JSON.stringify(next));s.buys=next;return true;}
-  catch{toast('Хранилище заполнено. Изменения не сохранены.');return false;}
-}
 
 document.addEventListener('click',event=>{
   const el=event.target.closest('button');if(!el||!s.models)return;
@@ -151,30 +239,42 @@ document.addEventListener('click',event=>{
     case 'range':s.range=Number(id);render();break;
     case 'analyze':bulk();break;
     case 'newsmode':s.important=id==='important';render();break;
-    case 'add':s.buyCoin=id||null;go('add');break;
+    case 'add':s.buyCoin=id||null;s.txType='buy';go('add');break;
+    case 'txtype':s.txType=id==='sell'?'sell':'buy';render();break;
+    case 'currency':s.currency=id==='usd'?'usd':'rub';try{localStorage.setItem('portfolio-currency',s.currency);}catch{}render();break;
+    case 'checkupdate':checkUpdate();break;
     case 'sim':go('sim');break;
     case 'askdelete':s.remove=id;render();break;
     case 'canceldelete':s.remove=null;render();break;
-    case 'delete':if(id===s.remove&&storeBuys(s.buys.filter(b=>b.key!==id)))go('portfolio');break;
+    case 'delete':if(id===s.remove&&storeTxs(s.txs.filter(t=>t.key!==id)))go('portfolio');break;
   }
 });
 document.addEventListener('input',e=>{
   if(e.target.id==='search'){s.query=e.target.value;document.querySelector('#coin-list').innerHTML=view.coinRows(s);}
+  if(e.target.closest('#tx-form'))updateTxCalc();
 });
 document.addEventListener('change',e=>{
   if(e.target.id==='sort'){s.sort=e.target.value;render();}
-  if(e.target.id==='buy-coin'){
-    const coin=s.coins.find(c=>c.id===e.target.value);
-    if(coin)e.target.form.elements.price.value=coin.price;
-  }
+  if(e.target.id==='tx-coin')updateTxCalc();
 });
 document.addEventListener('submit',e=>{
   e.preventDefault();const f=e.target, v=new FormData(f);
-  if(f.id==='buy-form'){
-    const coin=s.coins.find(c=>c.id===v.get('coin')),qty=Number(v.get('qty')),price=Number(v.get('price')),day=v.get('day');
-    if(!coin||!finite(qty*price)||qty<=0||price<=0||!/^\d{4}-\d{2}-\d{2}$/.test(day)||day>utcDay(Date.now())){toast('Проверьте количество, цену и дату.');return;}
-    const key=Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-');
-    if(storeBuys([...s.buys,{key,coin:coin.id,symbol:coin.symbol,qty,price,day,note:String(v.get('note')).trim()}]))go('portfolio');
+  if(f.id==='tx-form'){
+    const type=v.get('type')==='sell'?'sell':'buy';
+    const coin=s.coins.find(c=>c.id===v.get('coin'));
+    const qty=Number(v.get('qty')),rub=Number(v.get('rub')),day=v.get('day');
+    if(!coin||!finite(qty)||qty<=0||!finite(rub)||rub<=0||!/^\d{4}-\d{2}-\d{2}$/.test(day)||day>utcDay(Date.now())){
+      toast('Проверьте монету, количество, сумму и дату.');return;
+    }
+    if(type==='sell'){
+      const held=availableAt(s.txs,coin.id,day);
+      if(qty>held+1e-9){
+        toast('На '+day+' доступно '+held.toLocaleString('ru-RU',{maximumFractionDigits:8})+' '+coin.symbol+'.');
+        return;
+      }
+    }
+    const tx={key:makeKey(),type,coin:coin.id,symbol:coin.symbol,qty,rub,day,note:String(v.get('note')||'').trim()};
+    if(storeTxs([...s.txs,tx]))go('portfolio');
   }
   if(f.id==='sim-form'){
     const output=document.querySelector('#simulation');
@@ -191,12 +291,13 @@ window.advisorBack=()=>{
   return false;
 };
 async function start(){
+  s.txs=readPortfolio();
+  try{const saved=localStorage.getItem('portfolio-currency');s.currency=saved==='usd'?'usd':'rub';}catch{}
   try{
-    const value=JSON.parse(localStorage.getItem('portfolio-v1')||'[]');
-    if(!Array.isArray(value))throw Error('portfolio');
-    s.buys=value;
-  }catch{portfolioLocked=true;toast('Не удалось прочитать сохранённый портфель.');}
-  try{s.models=await loadModels();render();await marketRefresh();}
-  catch{main.textContent='Не удалось открыть встроенные модели. Повторно откройте приложение.';}
+    s.models=await loadModels();
+    await loadFx(false);
+    upgradeLegacy();
+    render();await marketRefresh();
+  }catch{main.textContent='Не удалось открыть встроенные модели. Повторно откройте приложение.';}
 }
 start();

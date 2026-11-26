@@ -1,4 +1,5 @@
 import {finite,horizons} from './analysis.js';
+import {summarize,availableAt,txRub,sortTxs} from './portfolio.js';
 
 export const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const fmt=(n,d=2)=>finite(n)?n.toLocaleString('ru-RU',{maximumFractionDigits:d}):'—';
@@ -89,7 +90,12 @@ export function news(s){
   return header('Новости','Заголовки криптоизданий на языке источника')+`<section>${content}</section>`;
 }
 export function portfolio(s){
-  const prices=new Map(s.coins.map(c=>[c.id,c.price]));
+  const rate=s.fx?.rate,currency=s.currency==='usd'?'usd':'rub';
+  const sum=summarize(s.txs,s.coins,rate);
+  const conv=rub=>currency==='usd'?(finite(rate)&&rate>0?rub/rate:null):rub;
+  const show=rub=>{const v=conv(rub);return finite(v)?(currency==='usd'?money(v):fmt(v,2)+' ₽'):'—';};
+  const coinById=new Map(s.coins.map(c=>[c.id,c]));
+  const rateNote=s.fx?`Курс: 1 $ = ${fmt(s.fx.rate,2)} ₽ · ${esc(s.fx.source)}${s.fx.date?' · '+esc(s.fx.date):''}${s.fx.stale?' · кэш':''}`:(s.fxError||'Курс USD/RUB недоступен — стоимость в рублях неполная.');
   const advice=b=>{
     const cards=s.results.get(b.coin)?.cards;
     if(!cards)return '';
@@ -99,25 +105,58 @@ export function portfolio(s){
       :long<=-15&&medium<=-15?'Не докупать, следить внимательно.':medium>=15?'Держать, среднесрочно неплохо.':'Держать, явных сигналов нет.';
     return note(text);
   };
-  const legs=s.buys.map(b=>({...b,cost:b.qty*b.price,now:prices.has(b.coin)?prices.get(b.coin)*b.qty:null}));
-  const spent=legs.reduce((a,b)=>a+b.cost,0),all=legs.every(b=>b.now!==null);
-  const value=all?legs.reduce((a,b)=>a+b.now,0):null;
-  return header('Мой портфель','Покупки сохраняются на этом устройстве')+`<div class="hero"><small>Текущая стоимость</small><div class="big">${money(value)}</div><div class="metrics">${metric('Вложено',money(spent))}${metric('Результат',value===null?'Нет котировки':money(value-spent))}</div></div>
-  ${s.marketTime?note((s.stale?'Сохранённые котировки · ':'Котировки получены · ')+when(s.marketTime)):''}${act('add','Добавить покупку','','cta')}
-  <section><h2>Покупки</h2>${legs.length?legs.map(b=>panel(`<div class="between"><strong>${esc(b.symbol)}</strong><strong class="mono">${money(b.now)}</strong></div>
-  <small>${esc(b.day)} · ${fmt(b.qty,10)} × ${money(b.price)}</small>${b.note?`<p>${esc(b.note)}</p>`:''}
-  ${advice(b)}${prices.has(b.coin)?act('coin','Анализ монеты',b.coin):''}<div class="between"><span class="${b.now===null?'':color(b.now-b.cost)}">${b.now===null?'Котировка недоступна':money(b.now-b.cost)}</span>${s.remove===b.key?act('delete','Подтвердить удаление',b.key)+act('canceldelete','Отмена'):act('askdelete','Удалить',b.key)}</div>`)).join(''):note('Пока нет записанных покупок.')}</section>`;
+  const toggle=`<div class="chips">${act('currency','₽ Рубли','rub',currency==='rub'?'active':'')}${act('currency','$ Доллары','usd',currency==='usd'?'active':'')}</div>`;
+  const positions=sum.holdings.map(p=>{
+    const c=coinById.get(p.coin);
+    const priceText=currency==='usd'?money(c?.price):(finite(p.priceRub)?fmt(p.priceRub,2)+' ₽':'—');
+    return panel(`<div class="between"><strong>${esc(p.symbol)}</strong><strong class="mono">${show(p.value)}</strong></div>
+      <small>${fmt(p.qty,10)} · средняя ${show(p.avg)} · сейчас ${priceText}</small>
+      <div class="between"><span>П/У: <b class="${p.pl>0?'up':p.pl<0?'down':''}">${show(p.pl)}${finite(p.plPct)?' ('+sign(p.plPct,1)+'%)':''}</b></span></div>
+      ${advice(p)}${c?act('coin','Анализ монеты',p.coin):''}`);
+  }).join('');
+  const txs=sortTxs(s.txs).slice().reverse();
+  const txRows=txs.map(tx=>{
+    const rub=txRub(tx,rate),qty=Number(tx.qty),price=finite(rub)&&finite(qty)&&qty>0?rub/qty:null;
+    const sell=tx.type==='sell';
+    return `<div class="row"><div class="between"><b class="${sell?'down':'up'}">${sell?'Продажа':'Покупка'} ${esc(tx.symbol)}</b><strong class="mono">${show(rub)}</strong></div>
+      <small>${esc(tx.day)} · ${fmt(tx.qty,10)} × ${show(price)}${tx.legacy?' · старый USD':''}</small>
+      ${tx.note?`<p>${esc(tx.note)}</p>`:''}
+      ${s.remove===tx.key?act('delete','Подтвердить удаление',tx.key)+act('canceldelete','Отмена'):act('askdelete','Удалить',tx.key)}</div>`;
+  }).join('');
+  return header('Мой портфель','Покупки и продажи сохраняются на этом устройстве')+toggle+note(rateNote)+
+    `<div class="hero"><small>Текущая стоимость</small><div class="big">${show(sum.value)}</div>
+    <div class="metrics">${metric('Куплено',show(sum.totalBuy))}${metric('Продано',show(sum.totalSell))}${metric('В позициях',show(sum.cost))}</div></div>
+    <div class="metrics">${metric('Реализовано',show(sum.realized))}${metric('Нереализовано',show(sum.unrealized))}${metric('Итог',show(sum.total))}</div>
+    ${!sum.complete?note('Не по всем монетам есть текущая цена — итоговая стоимость неполная.'):''}
+    ${sum.oversold?note('В операциях есть продажи больше остатка — они обрезаны при расчёте.'):''}
+    ${sum.invalid?note('Некоторые операции не удалось прочитать: '+sum.invalid+'.'):''}
+    ${act('add','Добавить операцию','','cta')}
+    <section><h2>Позиции</h2>${positions||note('Открытых позиций нет.')}</section>
+    <section><h2>Операции</h2>${txRows||note('Пока нет операций.')}</section>`;
 }
+
 export function buyForm(s){
-  if(!s.coins.length)return header('Новая покупка')+panel(note('Сначала загрузите котировки на вкладке «Рынок».')+act('market','Открыть рынок'));
+  if(!s.coins.length)return header('Новая операция')+panel(note('Сначала загрузите котировки на вкладке «Рынок».')+act('market','Открыть рынок'));
+  const type=s.txType==='sell'?'sell':'buy';
   const c=s.coins.find(c=>c.id===s.buyCoin)||s.coins[0];
-  return act('portfolio','‹  Портфель')+`<section>${header('Новая покупка')}<form id="buy-form" class="panel">
-  <label>Монета<select id="buy-coin" name="coin">${opts(s.coins.map(c=>[c.id,c.symbol+' · '+c.name]),c.id)}</select></label>
-  <label>Количество<input name="qty" inputmode="decimal" type="number" step="any" min="0" required></label>
-  <label>Цена покупки, USD<input name="price" inputmode="decimal" type="number" step="any" min="0" value="${esc(c.price)}" required></label>
-  <label>Дата покупки<input name="day" type="date" value="${s.today}" max="${s.today}" required></label>
-  <label>Заметка<input name="note" maxlength="160"></label><button class="cta">Сохранить покупку</button></form></section>`;
+  const held=availableAt(s.txs,c.id,s.today);
+  return act('portfolio','‹  Портфель')+`<section>${header('Новая операция',type==='sell'?'Продажа крипты за рубли':'Покупка крипты за рубли')}
+    <div class="chips">${act('txtype','Покупка','buy',type==='buy'?'active':'')}${act('txtype','Продажа','sell',type==='sell'?'active':'')}</div>
+    <form id="tx-form" class="panel">
+      <input type="hidden" name="type" value="${type}">
+      <label>Монета<select id="tx-coin" name="coin">${opts(s.coins.map(c=>[c.id,c.symbol+' · '+c.name]),c.id)}</select></label>
+      <label>Сколько крипты ${type==='buy'?'получили':'продали'}<input name="qty" inputmode="decimal" type="number" step="any" min="0" required></label>
+      <label>Сколько рублей ${type==='buy'?'потратили':'получили'}<input name="rub" inputmode="decimal" type="number" step="any" min="0" required></label>
+      <label>Дата операции<input name="day" type="date" value="${s.today}" max="${s.today}" required></label>
+      <label>Заметка<input name="note" maxlength="160"></label>
+      <div id="tx-calc" class="sub"></div>
+      <button class="cta">Сохранить операцию</button>
+    </form>
+    ${type==='sell'?note('Сейчас доступно: '+fmt(held,10)+' '+c.symbol+'. Продать можно не больше остатка на выбранную дату.'):''}
+    ${note('Сумма в рублях — фактически потраченные или полученные деньги. Цена за монету считается автоматически.')}
+  </section>`;
 }
+
 export function simulator(s){
   const d=s.results.get(s.selected);if(!d)return '';
   const list=d.series, end=list.at(-1).r.day, min=list[0].r.day;
@@ -136,7 +175,16 @@ export function research(s){
   const f=s.models.factors, report=s.models.report, journal=s.journal;
   const done=(journal||[]).filter(j=>j.ret!==null&&Math.abs(j.total)>=15);
   const hits=done.filter(j=>j.total>=15?j.ret>0:j.ret<=0).length;
-  return header('Проверка советника','Исторические результаты и журнал этого устройства')+
+  const release=s.release;
+  const updatePanel=`<section><h2>Версия и обновления</h2><div class="panel">
+    <div class="between"><b>Установлено: ${esc(s.version||'dev')}</b><small>${release?'GitHub: '+esc(release.tag):''}</small></div>
+    ${release?note('Последний релиз на GitHub: '+esc(release.tag)+'.'):''}
+    ${s.updateAvailable?note('Доступна новая версия '+esc(release.tag)+'. Скачайте APK со страницы релизов.'):''}
+    ${s.releaseError?note(s.releaseError):''}
+    <div class="toolrow">${act('checkupdate','Проверить обновления')}<a class="cta" href="${esc(s.releasesUrl)}">Открыть GitHub Releases</a></div>
+    ${note('Проверка через GitHub API работает для публичного репозитория. Для приватного откроется страница Releases — скачайте APK в браузере и установите поверх текущей версии.')}
+  </div></section>`;
+  return header('Проверка советника','Исторические результаты и журнал этого устройства')+updatePanel+
     `<div class="hero"><small>Калибровка факторов</small><div class="big">${f.coins} монет</div>${note(f.period+' · '+fmt(f.samples,0)+' наблюдений')}</div>
     <h2>Проверка по годам</h2>${horizons.map(h=>{const d=f.horizons[h.key],m=report.horizons[h.key].metrics;return panel(`<div class="between"><b>${h.title}</b><small>${esc(d.reliability[0])}</small></div>
     <p>${esc(d.reliability[1])}</p><small>LightGBM · AUC ${fmt(m.auc,3)} · проверено ${fmt(m.n,0)} прогнозов</small>`);}).join('')}
