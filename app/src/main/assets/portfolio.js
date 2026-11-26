@@ -260,3 +260,86 @@ export function mergeTxs(current, incoming) {
     }
     return merged;
 }
+
+export function buildPortfolioSeries(txs, coins, histories, rate, range = 365, today = new Date().toISOString().slice(0, 10)) {
+    if (!Array.isArray(txs) || !txs.length || !finite(rate) || rate <= 0) {
+        return {series: [], complete: false, start: today, end: today};
+    }
+    const list = sortTxs(txs);
+    const days = new Set();
+    const dayMs = 86400000;
+    const start = new Date(Date.parse(today) - (Math.max(1, range) - 1) * dayMs).toISOString().slice(0, 10);
+    const priceRows = new Map();
+    const pointers = new Map();
+    const last = new Map();
+
+    for (const coin of coins) {
+        const rows = (histories.get(coin.id)?.rows || [])
+            .filter(r => finite(r.close) && r.close > 0 && r.day <= today)
+            .sort((a, b) => a.day.localeCompare(b.day));
+        priceRows.set(coin.id, rows);
+        pointers.set(coin.id, 0);
+        for (const row of rows) {
+            if (row.day < start) last.set(coin.id, row.close);
+            else break;
+        }
+    }
+    for (const [id, rows] of priceRows) {
+        const pointer = pointers.get(id);
+        if (pointer === 0) {
+            for (const row of rows) if (row.day >= start && row.day <= today) days.add(row.day);
+        }
+    }
+    for (const tx of list) if (tx.day >= start && tx.day <= today) days.add(tx.day);
+    days.add(today);
+    const ordered = [...days].sort();
+    if (!ordered.length) return {series: [], complete: false, start, end: today};
+
+    const holdings = new Map();
+    let invested = 0, index = 0, complete = true;
+    const series = [];
+    const priceById = new Map(coins.map(c => [c.id, c]));
+
+    const firstDay = list[0]?.day || start;
+    for (const day of ordered) {
+        if (day < firstDay) continue;
+        while (index < list.length && list[index].day <= day) {
+            const tx = list[index++];
+            const qty = Number(tx.qty), rub = txRub(tx, rate), fee = txFee(tx);
+            if (!finite(qty) || qty <= 0 || !finite(rub)) continue;
+            const held = holdings.get(tx.coin) || 0;
+            if (tx.type === 'sell') {
+                const sold = Math.min(qty, held);
+                if (sold <= 1e-12) continue;
+                holdings.set(tx.coin, held - sold);
+                invested -= (rub - fee) * (sold / qty);
+            } else {
+                holdings.set(tx.coin, held + qty);
+                invested += rub + fee;
+            }
+        }
+        for (const [id, rows] of priceRows) {
+            let pointer = pointers.get(id);
+            while (pointer < rows.length && rows[pointer].day <= day) {
+                last.set(id, rows[pointer].close);
+                pointer++;
+            }
+            pointers.set(id, pointer);
+        }
+        let value = 0, missing = false;
+        for (const [id, qty] of holdings) {
+            if (qty <= 1e-12) continue;
+            const coin = priceById.get(id);
+            const live = day === today && finite(coin?.price) && coin.price > 0 ? coin.price : null;
+            const price = live ?? last.get(id);
+            if (!finite(price) || price <= 0) {
+                missing = true;
+                continue;
+            }
+            value += qty * price * rate;
+        }
+        if (missing) complete = false;
+        series.push({day, value: missing ? null : value, partial: missing, invested});
+    }
+    return {series, complete, start, end: today};
+}

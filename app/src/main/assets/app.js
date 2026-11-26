@@ -1,6 +1,6 @@
 import {utcDay,dayMs,context,score,simulate,finite} from './analysis.js';
 import {loadModels,request,marketRows,fearMap,fundingMap,history,newsFeeds,recordJournal,journalRows,fxRate,fxRateForDay,searchCoins,extraPrices,latestRelease} from './data.js';
-import {makeKey,legacyToTxs,availableAt,normalizeTxs,nextSeq,parseBackup,buildBackup,mergeTxs} from './portfolio.js';
+import {makeKey,legacyToTxs,availableAt,normalizeTxs,nextSeq,parseBackup,buildBackup,mergeTxs,buildPortfolioSeries} from './portfolio.js';
 import * as view from './views.js';
 
 const main=document.querySelector('#main');
@@ -8,9 +8,9 @@ const RELEASES='https://github.com/xaxan1990-hub/crypto-advisor-android/releases
 const appVersion=new URLSearchParams(location.search).get('v')||'dev';
 const s={tab:'market',selected:null,models:null,coins:[],fear:new Map(),results:new Map(),query:'',sort:'rank',range:365,
   txs:[],extras:[],coinUniverse:[],buyCoin:null,txType:'buy',remove:null,editTx:null,importTxs:null,importSkipped:0,importCurrency:null,coinSearch:'',searchResults:null,searchBusy:false,searchError:'',news:null,important:false,journal:null,bulk:false,bulkNote:'',today:utcDay(Date.now()),
-  fx:null,fxError:'',currency:'rub',version:appVersion,releasesUrl:RELEASES,release:null,releaseError:'',updateAvailable:false};
+  fx:null,fxError:'',currency:'rub',portfolioRange:365,chartSeries:null,chartBusy:false,chartError:'',chartNote:'',chartKey:'',version:appVersion,releasesUrl:RELEASES,release:null,releaseError:'',updateAvailable:false};
 let refreshJob,newsJob,journalTicket=0,epoch=0,bulkTicket=0,loading=new Map(),histories=new Map(),fearJob,fxJob;
-let marketFromDisk=false,toastTimeout,portfolioLocked=false,legacyJob=null,extraJob=null;
+let marketFromDisk=false,toastTimeout,portfolioLocked=false,legacyJob=null,extraJob=null,chartTicket=0;
 
 function toast(text){
   const el=document.querySelector('#message');el.textContent=text;
@@ -32,6 +32,7 @@ function storeTxs(next){
   try{
     localStorage.setItem('portfolio-v2',JSON.stringify(next));
     s.txs=next;
+    s.chartKey='';s.chartSeries=null;s.chartError='';
     return true;
   }catch{toast('Хранилище заполнено. Изменения не сохранены.');return false;}
 }
@@ -96,12 +97,60 @@ async function refreshExtraPrices(){
       });
       if(changed){
         saveExtras();rebuildUniverse();
+        s.chartKey='';
         if(s.tab==='portfolio'||s.tab==='add')render();
       }
     }catch{}
     finally{extraJob=null;}
   })();
   return extraJob;
+}
+function chartSignature(){
+  return JSON.stringify([
+    s.portfolioRange,
+    Math.round((s.fx?.rate||0)*1e6),
+    s.txs.map(t=>[t.key,t.day,t.type,t.coin,t.qty,t.rub,t.fee]),
+    [...s.coins,...s.extras].map(c=>[c.id,Math.round((c.price||0)*1e8)]),
+  ]);
+}
+async function loadPortfolioChart(){
+  const ticket=++chartTicket;
+  if(!s.txs.length||!s.fx){
+    s.chartBusy=false;
+    s.chartSeries=null;
+    s.chartError=s.txs.length?'Курс USD/RUB недоступен — график в рублях не построить.':'';
+    s.chartNote='';
+    if(s.tab==='portfolio')render();
+    return;
+  }
+  const signature=chartSignature();
+  if(s.chartKey===signature&&s.chartSeries)return;
+  s.chartBusy=true;s.chartError='';s.chartNote='';
+  if(s.tab==='portfolio')render();
+  try{
+    rebuildUniverse();
+    const ids=[...new Set(s.txs.map(t=>t.coin))];
+    const skipped=Math.max(0,ids.length-15);
+    const needed=ids.slice(0,15).map(id=>s.coinUniverse.find(c=>c.id===id)||{id,symbol:id,price:null});
+    const histories=new Map();
+    for(let i=0;i<needed.length;i+=3){
+      await Promise.all(needed.slice(i,i+3).map(async coin=>{
+        try{histories.set(coin.id,await getHistory(coin,false));}catch{}
+      }));
+    }
+    if(ticket!==chartTicket)return;
+    const chart=buildPortfolioSeries(s.txs,needed,histories,s.fx.rate,s.portfolioRange,s.today);
+    s.chartSeries=chart;
+    s.chartKey=signature;
+    s.chartNote=skipped?'Для графика учтены первые 15 монет из '+ids.length+'.':'';
+  }catch(error){
+    if(ticket===chartTicket)s.chartError='Не удалось построить график: '+(error.message||'нет истории цен');
+  }finally{
+    if(ticket===chartTicket){
+      s.chartBusy=false;
+      if(s.tab==='portfolio')render();
+    }
+  }
 }
 function upgradeLegacy(){
   if(legacyJob)return legacyJob;
@@ -133,6 +182,7 @@ function upgradeLegacy(){
     if(!changed)return;
     if(s.txs!==original)return;
     s.txs=next;
+    s.chartKey='';s.chartSeries=null;
     if(!portfolioLocked){
       try{localStorage.setItem('portfolio-v2',JSON.stringify(next));}catch{}
     }
@@ -288,7 +338,7 @@ function safeMarketRender(){
 function go(tab){
   if(tab!=='add')s.editTx=null;
   s.tab=tab;s.remove=null;window.scrollTo(0,0);render();
-  if(tab==='portfolio'&&s.extras.length)refreshExtraPrices();
+  if(tab==='portfolio'){loadPortfolioChart();if(s.extras.length)refreshExtraPrices();}
   if(tab==='news'&&!s.news)loadNews(false);
   if(tab==='research')readJournal();
 }
@@ -372,6 +422,7 @@ async function marketRefresh(force=false){
       const wanted=s.selected;
       epoch++;bulkTicket++;s.bulk=false;s.bulkNote='';loading=new Map();histories=new Map();
       s.coins=coins;s.results=new Map();s.marketTime=pack.at;s.stale=!!pack.stale;marketFromDisk=!!pack.stale;s.marketError='';
+      s.chartKey='';
       syncExtras();rebuildUniverse();
       if(!coins.some(c=>c.id===wanted)&&['detail','sim'].includes(s.tab))s.tab='market';
       s.fear=new Map();
@@ -379,6 +430,7 @@ async function marketRefresh(force=false){
       const current=epoch;
       fearJob.then(f=>{if(f&&epoch===current){s.fear=f.map;safeMarketRender();}});
       if(s.tab!=='add')render();
+      if(s.tab==='portfolio')loadPortfolioChart();
       if(s.extras.length)refreshExtraPrices();
       const id=['detail','sim'].includes(s.tab)?wanted:'bitcoin',target=coins.find(c=>c.id===id);
       if(target){
@@ -450,6 +502,8 @@ document.addEventListener('click',event=>{
     }
     case 'txtype':s.txType=id==='sell'?'sell':'buy';render();break;
     case 'currency':s.currency=id==='usd'?'usd':'rub';try{localStorage.setItem('portfolio-currency',s.currency);}catch{}render();break;
+    case 'chartrange':s.portfolioRange=Number(id)||365;s.chartKey='';render();loadPortfolioChart();break;
+    case 'loadchart':s.chartKey='';loadPortfolioChart();break;
     case 'export':exportPortfolio();break;
     case 'import':importPortfolio();break;
     case 'importreplace':
@@ -547,6 +601,7 @@ async function start(){
     loadFx(false).then(async()=>{
       await upgradeLegacy();
       if(s.tab==='portfolio'||s.tab==='add')render();
+      if(s.tab==='portfolio')loadPortfolioChart();
     });
     await marketRefresh();
     checkUpdateOnStart();

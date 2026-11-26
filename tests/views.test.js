@@ -137,3 +137,17 @@ test('coin search results render pick buttons', () => {
   assert.match(html, /PEPE/);
   assert.match(html, /Pepe/);
 });
+
+test('portfolio value chart draws value and invested lines', () => {
+  const html = view.portfolio({...base, txs: [
+    {key: 'a', type: 'buy', coin: 'ethereum', symbol: 'ETH', qty: 1, rub: 200000, day: '2026-11-20', seq: 1},
+  ], chartSeries: {complete: true, series: [
+    {day: '2026-11-20', value: 200000, invested: 200000},
+    {day: '2026-11-21', value: 220000, invested: 200000},
+    {day: '2026-11-22', value: 210000, invested: 200000},
+  ]}});
+  assert.match(html, /Динамика портфеля/);
+  assert.match(html, /Чистые вложения/);
+  assert.match(html, /Стоимость ·/);
+  assert.match(html, /chartrange/);
+});

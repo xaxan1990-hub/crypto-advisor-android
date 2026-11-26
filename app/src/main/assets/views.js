@@ -116,6 +116,31 @@ export function news(s){
   if(s.important&&n?.items.length&&!n.items.some(x=>x.events.length))content+=note('В этих заголовках событий не найдено.');
   return header('Новости','Заголовки криптоизданий на языке источника')+`<section>${content}</section>`;
 }
+export function portfolioChart(s){
+  if(s.chartBusy)return note('Считаем историю портфеля…');
+  if(s.chartError)return note(s.chartError)+act('loadchart','Повторить');
+  const series=s.chartSeries?.series||[];
+  if(series.length<2)return note('График появится после первой операции, когда загрузится история цен.');
+  const vals=series.flatMap(r=>[r.value,r.invested]).filter(finite);
+  const min=Math.min(0,...vals),max=Math.max(...vals),span=max-min||1;
+  const x=i=>4+312*(i+.5)/series.length;
+  const y=v=>112-100*(v-min)/span;
+  const line=key=>{
+    let path='',started=false;
+    series.forEach((r,i)=>{if(!finite(r[key])){started=false;return;}
+      path+=(started?'L':'M')+x(i).toFixed(2)+' '+y(r[key]).toFixed(2);started=true;});
+    return path;
+  };
+  const last=series[series.length-1];
+  const rub=v=>finite(v)?fmt(v,0)+' ₽':'—';
+  return `<svg class="chart" role="img" aria-label="Стоимость портфеля с ${series[0].day} по ${last.day}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="#324238" fill="none"/><path d="${line('invested')}" fill="none" stroke="#da9a70" stroke-width="1.4" vector-effect="non-scaling-stroke"/><path d="${line('value')}" fill="none" stroke="#baf295" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+    <div class="between sub"><span>${series[0].day}</span><span>${last.day}</span></div>
+    <div class="legend"><span>Стоимость · ${rub(last.value)}</span><span>Чистые вложения · ${rub(last.invested)}</span></div>
+    ${!s.chartSeries.complete?note('Часть истории цен недоступна — график может быть неполным.'):''}
+    ${s.chartNote?note(s.chartNote):''}
+    ${note('Оценка в текущем курсе ₽: линия стоимости показывает портфель по историческим ценам монет, линия вложений — сколько денег внесено минус выручка от продаж.')}`;
+}
+
 export function portfolio(s){
   const rate=s.fx?.rate,currency=s.currency==='usd'?'usd':'rub';
   const coins=s.coinUniverse||s.coins;
@@ -166,6 +191,9 @@ export function portfolio(s){
     ${sum.oversold?note('В операциях есть продажи больше остатка — они обрезаны при расчёте.'):''}
     ${sum.invalid?note('Некоторые операции не удалось прочитать: '+sum.invalid+'.'):''}
     <div class="toolrow">${act('add','Добавить операцию','','cta')}${act('export','Экспорт')}${act('import','Импорт')}</div>
+    <section><div class="between wrap"><h2>Динамика портфеля</h2><small>${s.chartBusy?'считаем…':'в рублях'}</small></div>
+    <div class="chips">${[90,365,1000].map(n=>act('chartrange',n===90?'3 месяца':n===365?'Год':'Всё',n,s.portfolioRange===n?'active':'')).join('')}</div>
+    ${portfolioChart(s)}</section>
     <section><h2>Позиции</h2>${positions||note('Открытых позиций нет.')}</section>
     <section><h2>Операции</h2>${txRows||note('Пока нет операций.')}</section>`;
 }

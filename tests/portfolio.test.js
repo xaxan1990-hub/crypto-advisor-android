@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {legacyToTxs, availableAt, summarize, txRub, txFee, parseBackup, buildBackup, mergeTxs} from '../app/src/main/assets/portfolio.js';
+import {legacyToTxs, availableAt, summarize, txRub, txFee, parseBackup, buildBackup, mergeTxs, buildPortfolioSeries} from '../app/src/main/assets/portfolio.js';
 
 const rate = 80;
 const coins = [{id: 'eth', price: 2250}]; // 2250 USD * 80 = 180000 RUB
@@ -125,4 +125,43 @@ test('merge adds new entries and avoids duplicate keys', () => {
   assert.equal(merged.length, 2);
   assert.equal(new Set(merged.map(t => t.key)).size, 2);
   assert.ok(merged[1].seq > current[0].seq);
+});
+
+
+test('portfolio value series follows holdings, prices and net invested cash', () => {
+  const coins = [
+    {id: 'btc', symbol: 'BTC', price: 1000},
+    {id: 'eth', symbol: 'ETH', price: 1000},
+  ];
+  const histories = new Map([
+    ['btc', {rows: [
+      {day: '2026-01-01', close: 1000}, {day: '2026-01-02', close: 1000}, {day: '2026-01-03', close: 1000},
+    ]}],
+    ['eth', {rows: [
+      {day: '2026-01-01', close: 1000}, {day: '2026-01-02', close: 1000}, {day: '2026-01-03', close: 1000},
+    ]}],
+  ]);
+  const txs = [
+    {key: 'a', type: 'buy', coin: 'btc', symbol: 'BTC', qty: 1, rub: 100000, day: '2026-01-01', seq: 1},
+    {key: 'b', type: 'buy', coin: 'eth', symbol: 'ETH', qty: 1, rub: 100000, day: '2026-01-02', seq: 2},
+    {key: 'c', type: 'sell', coin: 'btc', symbol: 'BTC', qty: 0.5, rub: 60000, day: '2026-01-03', seq: 3},
+  ];
+  const chart = buildPortfolioSeries(txs, coins, histories, 100, 90, '2026-01-03');
+  assert.equal(chart.complete, true);
+  const day1 = chart.series.find(x => x.day === '2026-01-01');
+  const day2 = chart.series.find(x => x.day === '2026-01-02');
+  const day3 = chart.series.find(x => x.day === '2026-01-03');
+  assert.equal(day1.value, 100000);
+  assert.equal(day1.invested, 100000);
+  assert.equal(day2.value, 200000);
+  assert.equal(day2.invested, 200000);
+  assert.equal(day3.value, 150000);
+  assert.equal(day3.invested, 140000);
+});
+
+test('portfolio chart marks missing history as incomplete', () => {
+  const txs = [{key: 'a', type: 'buy', coin: 'btc', symbol: 'BTC', qty: 1, rub: 100000, day: '2026-01-01', seq: 1}];
+  const chart = buildPortfolioSeries(txs, [{id: 'btc', symbol: 'BTC'}], new Map(), 100, 30, '2026-01-03');
+  assert.equal(chart.complete, false);
+  assert.equal(chart.series.at(-1).value, null);
 });
