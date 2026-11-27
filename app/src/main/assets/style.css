@@ -116,7 +116,8 @@ a{color:var(--accent);text-underline-offset:.15em}
 .story strong{display:block;margin-top:4px;line-height:1.35}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #message{position:fixed;bottom:calc(78px + env(safe-area-inset-bottom,0));left:50%;transform:translateX(-50%);background:var(--surface-3);color:var(--text);border:1px solid var(--line-strong);border-radius:12px;max-width:min(92vw,520px);width:max-content;padding:10px 12px 10px 38px;z-index:8;font-size:14px;box-shadow:var(--shadow);display:flex;align-items:center;gap:8px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}
-#message.show{opacity:1;pointer-events:auto}
+#message.show{opacity:1;pointer-events:none}
+#message button{pointer-events:auto}
 #message:before{content:"i";position:absolute;left:12px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;background:var(--info);color:#0b1a22;display:grid;place-items:center;font:700 11px/1 var(--mono)}
 #message.ok{border-color:color-mix(in srgb,var(--up) 50%,var(--line))}
 #message.ok:before{content:"✓";background:var(--up);color:#072016}
