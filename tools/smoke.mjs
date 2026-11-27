@@ -59,6 +59,7 @@ async function shot(name){
   const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
   writeFileSync('/tmp/advisor-'+name+'.png',Buffer.from(r.data,'base64'));
 }
+const clearToast=async()=>{await exec("document.querySelector('#message')?.classList.remove('show')");};
 const click=async selector=>{const q=JSON.stringify(selector);await until('!!document.querySelector('+q+')');await exec('document.querySelector('+q+').click()');};
 try{
   await send('Runtime.enable');
@@ -78,7 +79,7 @@ try{
   await until("!!document.querySelector('#tx-form')");
   await exec("document.querySelector('[name=qty]').value='2';document.querySelector('[name=rub]').value='200000';document.querySelector('#tx-form').requestSubmit()");
   await until("document.body.innerText.includes('История операций') && !!document.querySelector('[data-act=askdelete]')");
-  await shot('03-history');
+  await clearToast();await shot('03-history');
   await click('[data-act="askedit"]');
   await until("document.body.innerText.includes('Редактировать операцию')");
   await exec("document.querySelector('[name=fee]').value='500';document.querySelector('#tx-form').requestSubmit()");
@@ -96,25 +97,28 @@ try{
   await click('[data-tab="portfolio"]');
   await click('[data-act="add"]');
   await until("!!document.querySelector('#coin-search')");
-  await shot('09-add-form');
+  await clearToast();await shot('09-add-form');
   await exec("const q=document.querySelector('#coin-search');q.value='pepe';q.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('[data-act=coinsearch]').click()");
   await until("!!document.querySelector('[data-act=pickcoin]')");
   await click('[data-act="pickcoin"]');
   await until("document.querySelector('#tx-coin').value==='pepe'");
   await exec("document.querySelector('[name=qty]').value='1000000';document.querySelector('[name=rub]').value='800';document.querySelector('#tx-form').requestSubmit()");
   await until("document.body.innerText.includes('PEPE') && document.body.innerText.includes('История операций')");
-  await shot('05-history-pepe');
+  await clearToast();await shot('05-history-pepe');
   await click('[data-act=ptab][data-id="overview"]');
   await until("document.body.innerText.includes('Чистые вложения')");
-  await shot('06-overview');
+  await clearToast();await shot('06-overview');
+  await exec("const c=document.querySelector('.chart');if(c)window.scrollTo(0,c.getBoundingClientRect().top+scrollY-70)");
+  await shot('10-chart');
+  await exec('window.scrollTo(0,0)');
   await click('[data-act=ptab][data-id="alerts"]');
   await until("!!document.querySelector('#alert-form')");
   await exec("document.querySelector('#alert-form [name=target]').value='100000';document.querySelector('#alert-form').requestSubmit()");
   await until("document.body.innerText.includes('BTC ≥')");
-  await shot('07-alerts');
+  await clearToast();await shot('07-alerts');
   await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'}]});
   await exec('window.scrollTo(0,0)');
-  await shot('08-light');
+  await clearToast();await shot('08-light');
   await send('Emulation.setEmulatedMedia',{features:[]});
   await click('[data-tab="market"]');
   await exec("const input=document.querySelector('#search');input.value='eth';input.dispatchEvent(new Event('input',{bubbles:true}))");

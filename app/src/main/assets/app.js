@@ -571,7 +571,7 @@ document.addEventListener('click',event=>{
     case 'newsmode':s.important=id==='important';render();break;
     case 'add':s.editTx=null;s.txDraft=null;s.buyCoin=id||null;s.txType='buy';s.searchResults=null;s.searchError='';s.coinSearch='';go('add');break;
     case 'addsell':s.editTx=null;s.txDraft=null;s.buyCoin=id||null;s.txType='sell';s.searchResults=null;s.searchError='';s.coinSearch='';go('add');break;
-    case 'ptab':s.portfolioTab=['overview','positions','history','alerts'].includes(id)?id:'overview';try{localStorage.setItem('portfolio-tab',s.portfolioTab);}catch{}s.removeAlert=null;s.remove=null;render();if(s.portfolioTab==='alerts')refreshAlerts();break;
+    case 'ptab':s.portfolioTab=['overview','positions','history','alerts'].includes(id)?id:'overview';try{localStorage.setItem('portfolio-tab',s.portfolioTab);}catch{}s.removeAlert=null;s.remove=null;window.scrollTo(0,0);render();if(s.portfolioTab==='alerts')refreshAlerts();break;
     case 'sellpct':{
       if(!id)break;
       const f=document.querySelector('#tx-form');

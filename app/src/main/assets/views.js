@@ -249,23 +249,24 @@ export function portfolio(s){
   const byMonth=new Map();
   for(const tx of txs){const key=String(tx.day).slice(0,7);if(!byMonth.has(key)){byMonth.set(key,[]);groups.push(key);}byMonth.get(key).push(tx);}
   const history=groups.map(key=>`<div class="month">${monthText(byMonth.get(key)[0].day)}</div>${byMonth.get(key).map(tx=>txRow(tx)).join('')}`).join('');
-  const overview=`<section><div class="between wrap"><h2>Динамика</h2><small>${s.chartBusy?'считаем…':'в рублях'}</small></div>
+  const summary=`<div class="hero summary-card"><div class="summary-head"><div><small>Текущая стоимость</small><div class="big">${show(sum.value)}</div><small class="${plClass(sum.total)}">${sum.total==null?'Общий результат неполный':'Общий результат: '+show(sum.total)}</small></div></div>
+    <div class="metrics">${metric('В позициях',show(sum.cost))}${metric('Бумажная прибыль',show(sum.unrealized),plClass(sum.unrealized))}${metric('Реализованная прибыль',show(sum.realized),plClass(sum.realized))}${metric('Куплено',show(sum.totalBuy))}</div>
+    <details><summary>Детали расчёта</summary><div class="facts"><div class="fact"><span>Продано</span><b>${show(sum.totalSell)}</b></div><div class="fact"><span>Комиссии</span><b>${show(sum.fees)}</b></div><div class="fact"><span>Итог</span><b class="${plClass(sum.total)}">${show(sum.total)}</b></div></div></details>
+    <div class="summary-actions">${act('add','+ Операция','','cta')}${act('export','Экспорт')}${act('import','Импорт')}</div>
+    ${!sum.complete?note('Не по всем монетам есть цена — стоимость неполная.'):''}
+    ${sum.oversold?note('Есть продажи больше остатка — они обрезаны при расчёте.'):''}
+    ${sum.invalid?note('Не удалось прочитать операций: '+sum.invalid+'.'):''}
+  </div>`;
+  const mini=`<div class="between panel"><span><small>Стоимость</small><br><b class="mono">${show(sum.value)}</b></span><span class="${plClass(sum.total)}"><small>Общий результат</small><br><b class="mono">${show(sum.total)}</b></span></div>`;
+  const overview=summary+`<section><div class="between wrap"><h2>Динамика</h2><small>${s.chartBusy?'считаем…':'в рублях'}</small></div>
     <div class="chips">${[90,365,1000].map(n=>act('chartrange',n===90?'3 месяца':n===365?'Год':'Всё',n,s.portfolioRange===n?'active':'')).join('')}</div>
     ${portfolioChart(s)}</section>${recent}`;
-  const content=tab==='positions'?`<section><h2>Позиции</h2>${positions||empty('◇','Открытых позиций нет','Добавьте покупку, чтобы увидеть здесь свои монеты.',act('add','Добавить операцию','','cta'))}</section>`
-    :tab==='history'?`<section><h2>История операций</h2>${history||empty('≡','Операций пока нет','Первая покупка займёт меньше минуты.',act('add','Добавить операцию','','cta'))}</section>`
+  const content=tab==='positions'?mini+`<section><h2>Позиции</h2>${positions||empty('◇','Открытых позиций нет','Добавьте покупку, чтобы увидеть здесь свои монеты.',act('add','Добавить операцию','','cta'))}</section>`
+    :tab==='history'?mini+`<section><h2>История операций</h2>${history||empty('≡','Операций пока нет','Первая покупка займёт меньше минуты.',act('add','Добавить операцию','','cta'))}</section>`
     :tab==='alerts'?alertsPanel(s)
     :overview;
   return header('Мой портфель','Покупки и продажи хранятся на этом устройстве')+
     `<div class="between wrap"><span class="sub">${rateNote}</span>${toggle}</div>`+
-    `<div class="hero summary-card"><div class="summary-head"><div><small>Текущая стоимость</small><div class="big">${show(sum.value)}</div><small class="${plClass(sum.total)}">${sum.total==null?'Общий результат неполный':'Общий результат: '+show(sum.total)}</small></div></div>
-      <div class="metrics">${metric('В позициях',show(sum.cost))}${metric('Бумажная прибыль',show(sum.unrealized),plClass(sum.unrealized))}${metric('Реализованная прибыль',show(sum.realized),plClass(sum.realized))}${metric('Куплено',show(sum.totalBuy))}</div>
-      <details><summary>Детали расчёта</summary><div class="facts"><div class="fact"><span>Продано</span><b>${show(sum.totalSell)}</b></div><div class="fact"><span>Комиссии</span><b>${show(sum.fees)}</b></div><div class="fact"><span>Итог</span><b class="${plClass(sum.total)}">${show(sum.total)}</b></div></div></details>
-      <div class="summary-actions">${act('add','+ Операция','','cta')}${act('export','Экспорт')}${act('import','Импорт')}</div>
-      ${!sum.complete?note('Не по всем монетам есть цена — стоимость неполная.'):''}
-      ${sum.oversold?note('Есть продажи больше остатка — они обрезаны при расчёте.'):''}
-      ${sum.invalid?note('Не удалось прочитать операций: '+sum.invalid+'.'):''}
-    </div>`+
     importPanel+
     `<div class="segments" role="tablist">${[['overview','Обзор'],['positions','Позиции'],['history','История'],['alerts','Уведомления']].map(([id,label])=>`<button type="button" role="tab" aria-selected="${tab===id}" class="${tab===id?'active':''}" data-act="ptab" data-id="${id}">${label}${id==='alerts'&&s.alerts?.length?` · ${s.alerts.length}`:''}</button>`).join('')}</div>`+
     content;

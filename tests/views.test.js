@@ -52,9 +52,10 @@ test('portfolio renders RUB, buy/sell rows and P&L', () => {
       {key: 'b', type: 'sell', coin: 'ethereum', symbol: 'ETH', qty: 0.5, rub: 120000, day: '2026-11-21'},
     ],
   };
-  const html = view.portfolio({...s, portfolioTab: 'history'});
+  const html = view.portfolio({...s, portfolioTab: 'overview'});
   assert.match(html, /Мой портфель/);
-  assert.match(html, /История операций/);
+  assert.match(html, /Общий результат/);
+  assert.match(html, /Последние операции/);
   assert.match(html, /Продажа/);
   assert.match(html, /Курс ЦБ: 1 \$ = 80 ₽/);
   assert.match(html, /Реализованная прибыль/);
