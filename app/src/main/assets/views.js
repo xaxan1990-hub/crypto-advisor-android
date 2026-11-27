@@ -261,15 +261,14 @@ export function portfolio(s){
     `<div class="hero summary-card"><div class="summary-head"><div><small>Текущая стоимость</small><div class="big">${show(sum.value)}</div><small class="${plClass(sum.total)}">${sum.total==null?'Общий результат неполный':'Общий результат: '+show(sum.total)}</small></div></div>
       <div class="metrics">${metric('В позициях',show(sum.cost))}${metric('Бумажная прибыль',show(sum.unrealized),plClass(sum.unrealized))}${metric('Реализованная прибыль',show(sum.realized),plClass(sum.realized))}${metric('Куплено',show(sum.totalBuy))}</div>
       <details><summary>Детали расчёта</summary><div class="facts"><div class="fact"><span>Продано</span><b>${show(sum.totalSell)}</b></div><div class="fact"><span>Комиссии</span><b>${show(sum.fees)}</b></div><div class="fact"><span>Итог</span><b class="${plClass(sum.total)}">${show(sum.total)}</b></div></div></details>
-      <div class="summary-actions">${act('export','Экспорт')}${act('import','Импорт')}</div>
+      <div class="summary-actions">${act('add','+ Операция','','cta')}${act('export','Экспорт')}${act('import','Импорт')}</div>
       ${!sum.complete?note('Не по всем монетам есть цена — стоимость неполная.'):''}
       ${sum.oversold?note('Есть продажи больше остатка — они обрезаны при расчёте.'):''}
       ${sum.invalid?note('Не удалось прочитать операций: '+sum.invalid+'.'):''}
     </div>`+
     importPanel+
     `<div class="segments" role="tablist">${[['overview','Обзор'],['positions','Позиции'],['history','История'],['alerts','Уведомления']].map(([id,label])=>`<button type="button" role="tab" aria-selected="${tab===id}" class="${tab===id?'active':''}" data-act="ptab" data-id="${id}">${label}${id==='alerts'&&s.alerts?.length?` · ${s.alerts.length}`:''}</button>`).join('')}</div>`+
-    content+
-    `<button type="button" class="fab" data-act="add" aria-label="Добавить операцию" title="Добавить операцию">+</button>`;
+    content;
 }
 
 export function coinSearchResults(s){

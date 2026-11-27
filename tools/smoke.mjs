@@ -96,6 +96,7 @@ try{
   await click('[data-tab="portfolio"]');
   await click('[data-act="add"]');
   await until("!!document.querySelector('#coin-search')");
+  await shot('09-add-form');
   await exec("const q=document.querySelector('#coin-search');q.value='pepe';q.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('[data-act=coinsearch]').click()");
   await until("!!document.querySelector('[data-act=pickcoin]')");
   await click('[data-act="pickcoin"]');
