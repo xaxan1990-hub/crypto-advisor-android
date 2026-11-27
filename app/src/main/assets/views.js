@@ -267,6 +267,7 @@ export function portfolio(s){
     :overview;
   return header('Мой портфель','Покупки и продажи хранятся на этом устройстве')+
     `<div class="between wrap"><span class="sub">${rateNote}</span>${toggle}</div>`+
+    `<div class="toolrow portfolio-tools">${act('add','+ Операция','','cta')}${act('export','Экспорт')}${act('import','Импорт')}</div>`+
     importPanel+
     `<div class="segments" role="tablist">${[['overview','Обзор'],['positions','Позиции'],['history','История'],['alerts','Уведомления']].map(([id,label])=>`<button type="button" role="tab" aria-selected="${tab===id}" class="${tab===id?'active':''}" data-act="ptab" data-id="${id}">${label}${id==='alerts'&&s.alerts?.length?` · ${s.alerts.length}`:''}</button>`).join('')}</div>`+
     content;
