@@ -77,7 +77,7 @@ export function chart(rows){
   return `<div class="chart-wrap"><div class="chart-y" aria-hidden="true"><span>${num(max)}</span><span>${num((max+min)/2)}</span><span>${num(min)}</span></div>
     <div class="chart-plot"><svg class="chart" data-points="${esc(JSON.stringify(labels))}" role="img" aria-label="Японские свечи с ${dateText(first)} по ${dateText(last)}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="var(--line)" fill="none"/>${line('ma200','var(--warn)',1.4)}${line('ma50','var(--info)',1.4)}${candles}<line class="last-line" x1="0" x2="320" y1="${lastY.toFixed(2)}" y2="${lastY.toFixed(2)}" stroke-width="1"/></svg><span class="chart-last" style="top:${lastTop}%">${num(lastClose)}</span><div class="chart-tip" role="status"></div></div></div>
     <div class="between sub"><span>${dateText(first)}</span><span>${dateText(last)}</span></div>
-    <div class="legend"><span><i class="dot" style="background:var(--up)"></i>Рост</span><span><i class="dot" style="background:var(--down)"></i>Падение</span><span><i class="dot" style="background:var(--info)"></i>MA50</span><span><i class="dot" style="background:var(--warn)"></i>MA200</span></div>`;
+    <div class="legend"><span><span style="color:var(--up)">●</span> Рост</span><span><span style="color:var(--down)">●</span> Падение</span><span><span style="color:var(--info)">●</span> MA50</span><span><span style="color:var(--warn)">●</span> MA200</span></div>`;
 }
 
 export function coinRows(s){
@@ -166,7 +166,7 @@ export function portfolioChart(s){
   return `<div class="chart-wrap"><div class="chart-y" aria-hidden="true"><span>${axis(max)}</span><span>${axis((max+min)/2)}</span><span>${axis(min)}</span></div>
     <div class="chart-plot"><svg class="chart" data-points="${esc(JSON.stringify(labels))}" role="img" aria-label="Стоимость портфеля с ${dateText(series[0].day)} по ${dateText(last.day)}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="var(--line)" fill="none"/><path d="${line('invested')}" fill="none" stroke="var(--warn)" stroke-width="1.4" vector-effect="non-scaling-stroke"/><path d="${line('value')}" fill="none" stroke="var(--up)" stroke-width="2" vector-effect="non-scaling-stroke"/><line class="last-line" x1="0" x2="320" y1="${y(last.value??min).toFixed(2)}" y2="${y(last.value??min).toFixed(2)}" stroke-width="1"/></svg><span class="chart-last" style="top:${lastTop}%">${rub(last.value)}</span><div class="chart-tip" role="status"></div></div></div>
     <div class="between sub"><span>${dateText(series[0].day)}</span><span>${dateText(last.day)}</span></div>
-    <div class="legend"><span><i class="dot" style="background:var(--up)"></i>Стоимость</span><span><i class="dot" style="background:var(--warn)"></i>Чистые вложения</span></div>
+    <div class="legend"><span><span style="color:var(--up)">●</span> Стоимость</span><span><span style="color:var(--warn)">●</span> Чистые вложения</span></div>
     ${!s.chartSeries.complete?note('Часть истории цен недоступна — график может быть неполным.'):''}
     ${s.chartNote?note(s.chartNote):''}
     ${note('Оценка в текущем курсе ₽. Линия вложений — внесённые деньги минус выручка от продаж.')}`;
@@ -179,9 +179,11 @@ export function alertsPanel(s){
   const target=a=>a.currency==='rub'&&finite(a.targetRub)?fmt(a.targetRub,0)+' ₽':money(a.targetUsd);
   const rows=alerts.map(a=>{
     const status=!a.enabled?(a.triggeredAt?'сработало':'выключено'):'ждёт';
-    return `<div class="row">
+    const coin=coins.find(c=>c.id===a.coin);
+    const now=finite(coin?.price)?money(coin.price):'—';
+    return `<div class="row alert-row">
       <div class="between"><b>${esc(a.symbol)} ${a.above?'≥':'≤'} ${target(a)}</b><span class="badge ${a.triggeredAt?'live':''}">${status}</span></div>
-      <small>${a.currency==='rub'?'Цель в рублях':'Цель в долларах'}${a.triggeredAt?' · '+dateText(new Date(a.triggeredAt).toISOString().slice(0,10)):''}</small>
+      <small>Сейчас ${now} · цель ${a.currency==='rub'?'в рублях':'в долларах'}${a.triggeredAt?' · '+dateText(new Date(a.triggeredAt).toISOString().slice(0,10)):''}</small>
       <div class="toolrow">${!a.enabled&&a.triggeredAt?act('realert','Включить снова',a.key):''}${s.removeAlert===a.key?act('delalert','Удалить','','danger')+act('cancelalert','Отмена'):act('askdelalert','Удалить',a.key)}</div>
     </div>`;
   }).join('');
@@ -208,7 +210,7 @@ export function portfolio(s){
   const coins=s.coinUniverse||s.coins;
   const sum=summarize(s.txs,coins,rate);
   const conv=rub=>currency==='usd'?(finite(rate)&&rate>0?rub/rate:null):rub;
-  const show=rub=>{const v=conv(rub);return finite(v)?(currency==='usd'?money(v):fmt(v,2)+' ₽'):'—';};
+  const show=rub=>{const v=conv(rub);return finite(v)?(currency==='usd'?money(v):fmt(v,v>=1?2:v>=.01?5:8)+' ₽'):'—';};
   const coinById=new Map(coins.map(c=>[c.id,c]));
   const rateNote=s.fx?`Курс ЦБ: 1 $ = ${fmt(s.fx.rate,2)} ₽${s.fx.stale?' · кэш':''}`:(s.fxError||'Курс USD/RUB недоступен — стоимость в рублях неполная.');
   const tab=s.portfolioTab||'overview';
@@ -287,7 +289,7 @@ export function buyForm(s){
   if(!coins.length&&!edit)return header('Новая операция')+panel(note('Сначала загрузите котировки на вкладке «Рынок».')+act('market','Открыть рынок'));
   const draft=s.txDraft||{};
   const type=s.txType==='sell'?'sell':'buy';
-  const coinId=edit?.coin??draft.coin??s.buyCoin;
+  const coinId=draft.coin??edit?.coin??s.buyCoin;
   let c=coins.find(x=>x.id===coinId);
   if(!c&&edit)c={id:edit.coin,symbol:edit.symbol,name:edit.symbol};
   if(!c)c=coins[0];
@@ -295,10 +297,7 @@ export function buyForm(s){
   if(!options.some(([id])=>id===c.id))options.unshift([c.id,c.symbol+' · '+c.name]);
   const held=availableAt(s.txs.filter(t=>t.key!==edit?.key),c.id,s.today);
   const title=edit?'Редактировать операцию':'Новая операция';
-  const value=(field,fallback='')=>{
-    if(edit)return edit[field]??fallback;
-    return draft[field]??fallback;
-  };
+  const value=(field,fallback='')=>draft[field]??(edit?edit[field]:undefined)??fallback;
   const searchBlock=edit?'':`<details class="panel"><summary>Нет монеты в списке? Найти в CoinGecko</summary>
     <div class="toolrow"><label class="grow">Название или тикер<input type="search" id="coin-search" value="${esc(s.coinSearch||'')}" placeholder="например, pepe"></label>${act('coinsearch','Найти')}</div>
     <div id="coin-search-results" class="list">${coinSearchResults(s)}</div>
@@ -310,16 +309,16 @@ export function buyForm(s){
       <input type="hidden" name="type" value="${type}">
       <label>Монета<select id="tx-coin" name="coin">${opts(options,c.id)}</select></label>
       <div class="grid2">
-        <label>Количество ${esc(c.symbol)}<span class="field"><input name="qty" inputmode="decimal" type="text" placeholder="0" value="${edit?esc(edit.qty):esc(draft.qty||'')}" required><span class="suffix">${esc(c.symbol)}</span></span></label>
-        <label>Сумма, ₽<span class="field"><input name="rub" inputmode="decimal" type="text" placeholder="0" value="${edit&&edit.rub!=null?esc(edit.rub):esc(draft.rub||'')}" required><span class="suffix">₽</span></span></label>
+        <label>Количество ${esc(c.symbol)}<span class="field"><input name="qty" inputmode="decimal" type="text" placeholder="0" value="${esc(value('qty',''))}" required><span class="suffix">${esc(c.symbol)}</span></span></label>
+        <label>Сумма, ₽<span class="field"><input name="rub" inputmode="decimal" type="text" placeholder="0" value="${esc(value('rub',''))}" required><span class="suffix">₽</span></span></label>
       </div>
       <div class="grid2">
-        <label>Комиссия<span class="field"><input name="fee" inputmode="decimal" type="text" placeholder="0" value="${edit&&Number(edit.fee)>0?esc(edit.fee):esc(draft.fee||'')}"><span class="suffix">₽</span></span></label>
-        <label>Дата<input name="day" type="date" value="${edit?esc(edit.day):esc(draft.day||s.today)}" max="${s.today}" required></label>
+        <label>Комиссия<span class="field"><input name="fee" inputmode="decimal" type="text" placeholder="0" value="${esc(value('fee',''))}"><span class="suffix">₽</span></span></label>
+        <label>Дата<input name="day" type="date" value="${esc(value('day',s.today))}" max="${s.today}" required></label>
       </div>
       ${type==='sell'?`<div class="quick" aria-label="Доля продажи">${[25,50,75,100].map(n=>act('sellpct',n===100?'Всё':n+'%',n)).join('')}</div>`:''}
-      <label>Заметка<input name="note" maxlength="160" value="${edit?esc(edit.note):esc(draft.note||'')}" placeholder="необязательно"></label>
-      <div id="tx-calc" class="sub"></div>
+      <label>Заметка<input name="note" maxlength="160" value="${esc(value('note',''))}" placeholder="необязательно"></label>
+      <div id="tx-calc" class="calc"></div>
       <div class="form-error" id="tx-error" role="alert"></div>
       <div class="form-actions"><button type="submit" class="cta">${edit?'Сохранить изменения':'Сохранить операцию'}</button>${edit?act('canceledit','Отмена'):''}</div>
     </form>

@@ -163,5 +163,6 @@ test('portfolio chart marks missing history as incomplete', () => {
   const txs = [{key: 'a', type: 'buy', coin: 'btc', symbol: 'BTC', qty: 1, rub: 100000, day: '2026-01-01', seq: 1}];
   const chart = buildPortfolioSeries(txs, [{id: 'btc', symbol: 'BTC'}], new Map(), 100, 30, '2026-01-03');
   assert.equal(chart.complete, false);
-  assert.equal(chart.series.at(-1).value, null);
+  assert.equal(chart.series.at(-1).value, 0);
+  assert.equal(chart.series.at(-1).partial, true);
 });

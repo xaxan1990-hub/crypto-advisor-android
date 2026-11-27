@@ -292,8 +292,17 @@ export function buildPortfolioSeries(txs, coins, histories, rate, range = 365, t
     }
     for (const tx of list) if (tx.day >= start && tx.day <= today) days.add(tx.day);
     days.add(today);
-    const ordered = [...days].sort();
+    let ordered = [...days].sort();
     if (!ordered.length) return {series: [], complete: false, start, end: today};
+    const firstTxDay = list[0]?.day;
+    if (firstTxDay) {
+        const relevant = ordered.filter(day => day >= firstTxDay);
+        if (relevant.length < 2) {
+            const before = ordered.filter(day => day < firstTxDay).at(-1);
+            if (before) relevant.unshift(before);
+        }
+        ordered = relevant;
+    }
 
     const holdings = new Map();
     let invested = 0, index = 0, complete = true;
@@ -337,7 +346,7 @@ export function buildPortfolioSeries(txs, coins, histories, rate, range = 365, t
             value += qty * price * rate;
         }
         if (missing) complete = false;
-        series.push({day, value: missing ? null : value, partial: missing, invested});
+        series.push({day, value, partial: missing, invested});
     }
     return {series, complete, start, end: today};
 }

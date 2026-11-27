@@ -380,7 +380,7 @@ function clearFormError(id){
 }
 function captureDraft(){
   const f=document.querySelector('#tx-form');
-  if(!f||s.editTx)return;
+  if(!f)return;
   s.txDraft={coin:f.elements.coin?.value||'',qty:f.elements.qty?.value||'',rub:f.elements.rub?.value||'',
     fee:f.elements.fee?.value||'',day:f.elements.day?.value||s.today,note:f.elements.note?.value||''};
 }
