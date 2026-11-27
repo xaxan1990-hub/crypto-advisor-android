@@ -20,7 +20,7 @@ export const money=n=>finite(n)?'$'+fmt(n,n>=1?2:n>=.001?5:9):'—';
 const sign=(v,d=1)=>finite(v)?(v>0?'+':'')+fmt(v,d):'—';
 const color=v=>v>0?'up':v<0?'down':'';
 const pct=v=>finite(v)?sign(v)+'%':'—';
-export const when=t=>finite(t)&&t>0?new Date(t).toLocaleString('ru-RU',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+export const when=t=>{if(!finite(t)||t<=0)return '—';const d=new Date(t);return d.getDate()+' '+MONTHS[d.getMonth()]+' '+d.getFullYear()+', '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
 const act=(a,label,id='',cls='')=>`<button type="button" class="${cls}" data-act="${a}" data-id="${esc(id)}">${esc(label)}</button>`;
 const panel=s=>`<div class="panel">${s}</div>`;
 const metric=(name,value,cls='')=>`<div class="metric"><small>${esc(name)}</small><strong class="mono ${cls}">${esc(value)}</strong></div>`;
@@ -62,10 +62,12 @@ export function chart(rows){
       path+=(started?'L':'M')+x(i).toFixed(2)+' '+y(r[key]).toFixed(2);started=true;});
     return `<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" vector-effect="non-scaling-stroke"/>`;
   };
+  const labels=[];
   const candles=data.map((r,i)=>{
     const up=r.close>=r.open,color=up?'var(--up)':'var(--down)';
     const top=y(Math.max(r.open,r.close)),bottom=y(Math.min(r.open,r.close));
     const body=Math.max(1,bottom-top);
+    labels.push(`${dateText(r.day)} · O ${num(r.open)} · H ${num(r.high)} · L ${num(r.low)} · C ${num(r.close)}`);
     return `<g><title>${esc(dateText(r.day))} · O ${num(r.open)} · H ${num(r.high)} · L ${num(r.low)} · C ${num(r.close)}</title><line x1="${x(i).toFixed(2)}" x2="${x(i).toFixed(2)}" y1="${y(r.high).toFixed(2)}" y2="${y(r.low).toFixed(2)}" stroke="${color}" stroke-width="1"/><rect x="${(x(i)-bodyWidth/2).toFixed(2)}" y="${top.toFixed(2)}" width="${bodyWidth.toFixed(2)}" height="${body.toFixed(2)}" fill="${color}"/></g>`;
   }).join('');
   const first=data[0].day,last=data[data.length-1].day;
@@ -73,7 +75,7 @@ export function chart(rows){
   const lastY=y(lastClose);
   const lastTop=Math.max(4,Math.min(96,lastY));
   return `<div class="chart-wrap"><div class="chart-y" aria-hidden="true"><span>${num(max)}</span><span>${num((max+min)/2)}</span><span>${num(min)}</span></div>
-    <div class="chart-plot"><svg class="chart" role="img" aria-label="Японские свечи с ${dateText(first)} по ${dateText(last)}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="var(--line)" fill="none"/>${line('ma200','var(--warn)',1.4)}${line('ma50','var(--info)',1.4)}${candles}<line class="last-line" x1="0" x2="320" y1="${lastY.toFixed(2)}" y2="${lastY.toFixed(2)}" stroke-width="1"/></svg><span class="chart-last" style="top:${lastTop}%">${num(lastClose)}</span></div></div>
+    <div class="chart-plot"><svg class="chart" data-points="${esc(JSON.stringify(labels))}" role="img" aria-label="Японские свечи с ${dateText(first)} по ${dateText(last)}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="var(--line)" fill="none"/>${line('ma200','var(--warn)',1.4)}${line('ma50','var(--info)',1.4)}${candles}<line class="last-line" x1="0" x2="320" y1="${lastY.toFixed(2)}" y2="${lastY.toFixed(2)}" stroke-width="1"/></svg><span class="chart-last" style="top:${lastTop}%">${num(lastClose)}</span><div class="chart-tip" role="status"></div></div></div>
     <div class="between sub"><span>${dateText(first)}</span><span>${dateText(last)}</span></div>
     <div class="legend"><span><i class="dot" style="background:var(--up)"></i>Рост</span><span><i class="dot" style="background:var(--down)"></i>Падение</span><span><i class="dot" style="background:var(--info)"></i>MA50</span><span><i class="dot" style="background:var(--warn)"></i>MA200</span></div>`;
 }
@@ -107,7 +109,7 @@ export function market(s){
     ?empty('!','Не удалось загрузить рынок',s.marketError,act('refresh','Попробовать снова','','cta'))
     :`<div class="panel">${'<div class="skeleton skeleton-line"></div>'.repeat(3)}${'<div class="skeleton skeleton-row"></div>'.repeat(6)}</div>`);
   return title+`<section class="hero"><small>Биткоин · относительно средней за 200 дней</small><div class="big">${trend}</div><div class="metrics">${metric('BTC / USD',money(s.coins.find(c=>c.id==='bitcoin')?.price))}${metric('Страх и жадность',fear?fear[1]+' / 100':'—')}</div>${note('CoinGecko · Binance · индекс Alternative.me'+(fear?' за '+fear[0]:''))}</section>
-    <section><div class="between wrap"><h2>Сигналы рынка</h2><small>По ${s.results.size} из ${s.coins.length} монет</small></div><div class="metrics">${partial}</div></section>
+    <section><div class="between wrap"><h2>Сигналы рынка</h2><small>По ${s.results.size} из ${s.coins.length} монет</small></div><div class="metrics three">${partial}</div></section>
     <div class="between wrap"><h2>Топ монет</h2><small>${s.coins.length} по капитализации</small></div>
     <div class="toolrow"><label class="grow">Поиск<input type="search" id="search" value="${esc(s.query)}" placeholder="Bitcoin или BTC"></label>
     <label>Сортировка<select id="sort">${opts([['rank','По месту'],['p24','За сутки'],...horizons.map(h=>[h.key,h.title])],s.sort)}</select></label></div>
@@ -121,7 +123,7 @@ export function detail(s){
   const c=s.coins.find(x=>x.id===s.selected);
   if(!c)return '';
   const d=s.results.get(c.id);
-  const title=act('market','‹  Рынок')+`<section>${header(c.name,c.symbol+' · #'+c.rank+' в отфильтрованном рейтинге')}<div class="big">${money(c.price)}</div><small>Котировка · ${when(c.at)}</small><div class="metrics">${metric('24 часа',pct(c.p24))}${metric('7 дней',pct(c.p7))}${metric('30 дней',pct(c.p30))}</div></section>`;
+  const title=act('market','‹  Рынок')+`<section>${header(c.name,c.symbol+' · #'+c.rank+' в отфильтрованном рейтинге')}<div class="big">${money(c.price)}</div><small>Котировка · ${when(c.at)}</small><div class="metrics three">${metric('24 часа',pct(c.p24))}${metric('7 дней',pct(c.p7))}${metric('30 дней',pct(c.p30))}</div></section>`;
   if(!d)return title+panel(note(s.detailError||'Загружаем дневные свечи и считаем оценки…')+(s.detailError?act('retry','Повторить'):''));
   const r=d.series.at(-1).r;
   const cards=d.cards.map((card,i)=>panel(`<div class="between"><h2>${horizons[i].title}</h2><strong class="mono ${color(card.total)}">${sign(card.total,0)} / 100</strong></div><small>${horizons[i].span}</small><p>${esc(card.verdict)}</p><small>Надёжность · ${esc(card.reliability)}</small>
@@ -160,8 +162,9 @@ export function portfolioChart(s){
   const rub=v=>finite(v)?fmt(v,0)+' ₽':'—';
   const axis=v=>{const a=Math.abs(v);return a>=1e6?fmt(v/1e6,1)+' млн':a>=1e3?fmt(v/1e3,0)+' тыс.':fmt(v,0);};
   const lastTop=Math.max(4,Math.min(96,y(last.value??min)));
+  const labels=series.map(r=>`${dateText(r.day)} · стоимость ${rub(r.value)} · вложено ${rub(r.invested)}`);
   return `<div class="chart-wrap"><div class="chart-y" aria-hidden="true"><span>${axis(max)}</span><span>${axis((max+min)/2)}</span><span>${axis(min)}</span></div>
-    <div class="chart-plot"><svg class="chart" role="img" aria-label="Стоимость портфеля с ${dateText(series[0].day)} по ${dateText(last.day)}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="var(--line)" fill="none"/><path d="${line('invested')}" fill="none" stroke="var(--warn)" stroke-width="1.4" vector-effect="non-scaling-stroke"/><path d="${line('value')}" fill="none" stroke="var(--up)" stroke-width="2" vector-effect="non-scaling-stroke"/><line class="last-line" x1="0" x2="320" y1="${y(last.value??min).toFixed(2)}" y2="${y(last.value??min).toFixed(2)}" stroke-width="1"/></svg><span class="chart-last" style="top:${lastTop}%">${rub(last.value)}</span></div></div>
+    <div class="chart-plot"><svg class="chart" data-points="${esc(JSON.stringify(labels))}" role="img" aria-label="Стоимость портфеля с ${dateText(series[0].day)} по ${dateText(last.day)}" viewBox="0 0 320 120" preserveAspectRatio="none"><path d="M0 12H320M0 62H320M0 112H320" stroke="var(--line)" fill="none"/><path d="${line('invested')}" fill="none" stroke="var(--warn)" stroke-width="1.4" vector-effect="non-scaling-stroke"/><path d="${line('value')}" fill="none" stroke="var(--up)" stroke-width="2" vector-effect="non-scaling-stroke"/><line class="last-line" x1="0" x2="320" y1="${y(last.value??min).toFixed(2)}" y2="${y(last.value??min).toFixed(2)}" stroke-width="1"/></svg><span class="chart-last" style="top:${lastTop}%">${rub(last.value)}</span><div class="chart-tip" role="status"></div></div></div>
     <div class="between sub"><span>${dateText(series[0].day)}</span><span>${dateText(last.day)}</span></div>
     <div class="legend"><span><i class="dot" style="background:var(--up)"></i>Стоимость</span><span><i class="dot" style="background:var(--warn)"></i>Чистые вложения</span></div>
     ${!s.chartSeries.complete?note('Часть истории цен недоступна — график может быть неполным.'):''}
@@ -187,7 +190,7 @@ export function alertsPanel(s){
       <label>Монета<select name="coin">${opts(coins.map(c=>[c.id,c.symbol+' · '+c.name]),coins[0].id)}</select></label>
       <div class="grid2"><label>Условие<select name="dir"><option value="above">Цена выше</option><option value="below">Цена ниже</option></select></label>
       <label>Валюта цели<select name="currency"><option value="rub">Рубли</option><option value="usd">Доллары</option></select></label></div>
-      <label>Целевая цена<span class="field"><input name="target" inputmode="decimal" type="text" placeholder="0" required><span class="suffix">₽ / $</span></span></label>
+      <label>Целевая цена<span class="field"><input name="target" inputmode="decimal" type="text" placeholder="0" required><span class="suffix" id="alert-suffix">₽</span></span></label>
       <div class="form-error" id="alert-error" role="alert"></div>
       <button type="submit" class="cta">Сохранить уведомление</button>
     </form></details>`:empty('🔔','Нет монет для уведомления','Сначала загрузите котировки на вкладке «Рынок».');
@@ -223,7 +226,7 @@ export function portfolio(s){
     ${note('«Заменить» удалит текущие операции и оставит только импортированные. «Добавить» сохранит текущие и дозапишет новые без дублей.')}
     <div class="toolrow">${act('importreplace','Заменить портфель','','cta')}${act('importmerge','Добавить к текущему')}${act('importcancel','Отмена')}</div>
   </div></section>`:'';
-  const toggle=`<div class="chips">${act('currency','₽','rub',currency==='rub'?'active':'')}${act('currency','$','usd',currency==='usd'?'active':'')}</div>`;
+  const toggle=`<div class="chips">${act('currency','₽ Рубли','rub',currency==='rub'?'active':'')}${act('currency','$ Доллары','usd',currency==='usd'?'active':'')}</div>`;
   const plClass=v=>v>0?'up':v<0?'down':'';
   const txRow=(tx,actions=true)=>{
     const rub=txRub(tx,rate),fee=txFee(tx),qty=Number(tx.qty),price=finite(rub)&&finite(qty)&&qty>0?rub/qty:null;
@@ -255,10 +258,10 @@ export function portfolio(s){
     :overview;
   return header('Мой портфель','Покупки и продажи хранятся на этом устройстве')+
     `<div class="between wrap"><span class="sub">${rateNote}</span>${toggle}</div>`+
-    `<div class="hero summary-card"><div class="summary-head"><div><small>Текущая стоимость</small><div class="big">${show(sum.value)}</div><small class="${plClass(sum.total)}">${sum.total==null?'Итог неполный':'Общий результат: '+show(sum.total)}</small></div>
-      <div class="summary-actions">${act('export','Экспорт')}${act('import','Импорт')}</div></div>
-      <div class="metrics">${metric('В позициях',show(sum.cost))}${metric('Бумажная прибыль',show(sum.unrealized),plClass(sum.unrealized))}${metric('Общий результат',show(sum.total),plClass(sum.total))}</div>
-      <details><summary>Детали расчёта</summary><div class="facts"><div class="fact"><span>Куплено</span><b>${show(sum.totalBuy)}</b></div><div class="fact"><span>Продано</span><b>${show(sum.totalSell)}</b></div><div class="fact"><span>Комиссии</span><b>${show(sum.fees)}</b></div><div class="fact"><span>Реализованная прибыль</span><b class="${plClass(sum.realized)}">${show(sum.realized)}</b></div></div></details>
+    `<div class="hero summary-card"><div class="summary-head"><div><small>Текущая стоимость</small><div class="big">${show(sum.value)}</div><small class="${plClass(sum.total)}">${sum.total==null?'Общий результат неполный':'Общий результат: '+show(sum.total)}</small></div></div>
+      <div class="metrics">${metric('В позициях',show(sum.cost))}${metric('Бумажная прибыль',show(sum.unrealized),plClass(sum.unrealized))}${metric('Реализованная прибыль',show(sum.realized),plClass(sum.realized))}${metric('Куплено',show(sum.totalBuy))}</div>
+      <details><summary>Детали расчёта</summary><div class="facts"><div class="fact"><span>Продано</span><b>${show(sum.totalSell)}</b></div><div class="fact"><span>Комиссии</span><b>${show(sum.fees)}</b></div><div class="fact"><span>Итог</span><b class="${plClass(sum.total)}">${show(sum.total)}</b></div></div></details>
+      <div class="summary-actions">${act('export','Экспорт')}${act('import','Импорт')}</div>
       ${!sum.complete?note('Не по всем монетам есть цена — стоимость неполная.'):''}
       ${sum.oversold?note('Есть продажи больше остатка — они обрезаны при расчёте.'):''}
       ${sum.invalid?note('Не удалось прочитать операций: '+sum.invalid+'.'):''}

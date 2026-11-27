@@ -357,6 +357,12 @@ function render(){
   main.innerHTML=view.updateBanner(s)+offline+({market:view.market,detail:view.detail,news:view.news,portfolio:view.portfolio,add:view.buyForm,sim:view.simulator,research:view.research})[s.tab](s);
   document.querySelector('#refresh').disabled=!!refreshJob||!!newsJob;
   if(s.tab==='add')updateTxCalc();
+  updateAlertSuffix();
+}
+function updateAlertSuffix(){
+  const form=document.querySelector('#alert-form');
+  const suffix=document.querySelector('#alert-suffix');
+  if(form&&suffix)suffix.textContent=form.elements.currency?.value==='usd'?'$':'₽';
 }
 function num(value){
   const text=String(value??'').replace(/\s+/g,'').replace(',','.');
@@ -660,6 +666,7 @@ document.addEventListener('input',e=>{
 document.addEventListener('change',e=>{
   if(e.target.id==='sort'){s.sort=e.target.value;render();}
   if(e.target.id==='tx-coin')updateTxCalc();
+  if(e.target.name==='currency'&&e.target.closest('#alert-form'))updateAlertSuffix();
 });
 document.addEventListener('submit',e=>{
   e.preventDefault();const f=e.target, v=new FormData(f);
@@ -729,6 +736,30 @@ document.addEventListener('submit',e=>{
     catch(err){setFormError('sim-error',err.message);}
   }
 });
+function showChartTip(event){
+  const plot=event.target.closest?.('.chart-plot');
+  if(!plot)return;
+  const svg=plot.querySelector('svg[data-points]');
+  if(!svg)return;
+  let points;
+  try{points=JSON.parse(svg.dataset.points||'[]');}catch{return;}
+  if(!points.length)return;
+  const rect=svg.getBoundingClientRect();
+  const ratio=Math.min(1,Math.max(0,(event.clientX-rect.left)/rect.width));
+  const index=Math.min(points.length-1,Math.round(ratio*(points.length-1)));
+  const tip=plot.querySelector('.chart-tip');
+  tip.textContent=points[index];
+  tip.style.display='block';
+  tip.style.top='8px';
+  tip.style.left=Math.max(4,Math.min(rect.width-170,ratio*rect.width-80))+'px';
+}
+function hideChartTips(){
+  document.querySelectorAll('.chart-tip').forEach(el=>{el.style.display='none';});
+}
+document.addEventListener('pointerdown',showChartTip);
+document.addEventListener('pointermove',e=>{if(e.pointerType==='mouse')showChartTip(e);});
+document.addEventListener('pointerup',e=>{if(e.pointerType!=='mouse')setTimeout(hideChartTips,2600);});
+document.addEventListener('scroll',hideChartTips,{passive:true});
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden)return;
   s.notifEnabled=notificationsEnabled();
